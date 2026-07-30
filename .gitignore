@@ -1,0 +1,84 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+*.so
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Qt / PySide6
+*.qrc
+*.qm
+*.qm.user
+ui/resources_rc.py
+
+# Project data
+*.projectai
+*.proj
+user_data/
+cache/
+temp/
+output/
+
+# Configuration
+config.local.yaml
+config.local.yml
+config.local.json
+*.local.*
+
+# Logs
+logs/
+*.log
+
+# Testing & Coverage
+.coverage
+coverage_html/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+
+# Documentation
+site/
+docs/_build/
+docs/api/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Temporary
+tmp/
+*.tmp
+*~
+.\#*
+
+# Graph
+.codegraph/
+.omo/
+
+# Build artifacts
+*.whl
+*.tar.gz

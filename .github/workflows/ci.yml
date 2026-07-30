@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Ruff check
+        run: uv run ruff check src/
+      - name: Ruff format check
+        run: uv run ruff format --check src/
+      - name: MyPy
+        run: uv run mypy src/projectionai/
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1-mesa libgl1-mesa-glx libxkbcommon-x11-0
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Run tests
+        run: uv run pytest --no-header -q --cov=src/projectionai --cov-report=xml --cov-report=term-missing
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false

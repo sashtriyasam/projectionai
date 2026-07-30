@@ -1,0 +1,237 @@
+[build-system]
+requires = ["setuptools>=75.0", "wheel>=0.44"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "projectionai"
+version = "0.1.0.dev0"
+description = "AI-powered projection mapping platform"
+readme = "README.md"
+license = { text = "Proprietary" }
+requires-python = ">=3.12"
+
+authors = [
+    { name = "ProjectionAI Team" },
+]
+
+keywords = [
+    "projection-mapping",
+    "computer-vision",
+    "ai",
+    "3d-rendering",
+    "creative-technology",
+]
+
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "Natural Language :: English",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics :: 3D Rendering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+
+dependencies = [
+    # Core
+    "PySide6>=6.8",
+    "numpy>=1.26",
+    "pydantic>=2.5",
+    "pydantic-settings>=2.1",
+    "platformdirs>=4.1",
+
+    # Computer Vision
+    "opencv-python>=4.9",
+    "scipy>=1.12",
+    "scikit-image>=0.23",
+    "Pillow>=10.2",
+
+    # 3D
+    "open3d>=0.18",
+    "trimesh>=4.2",
+
+    # Rendering
+    "ModernGL>=5.10",
+    "PyOpenGL>=3.1",
+    "glfw>=2.7",
+
+    # Data & Serialization
+    "orjson>=3.9",
+    "PyYAML>=6.0",
+
+    # Async
+    "anyio>=4.2",
+]
+
+[project.optional-dependencies]
+gemini = [
+    "google-genai>=1.0",
+]
+openai = [
+    "openai>=1.0",
+]
+anthropic = [
+    "anthropic>=0.30",
+]
+replicate = [
+    "replicate>=0.25",
+]
+all = [
+    "projectionai[gemini,openai,anthropic,replicate]",
+]
+
+dev = [
+    # Testing
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "pytest-qt>=4.2",
+    "pytest-asyncio>=0.23",
+
+    # Linting & Formatting
+    "ruff>=0.2",
+    "mypy>=1.8",
+    "black>=24.0",
+    "isort>=5.13",
+
+    # Tooling
+    "pre-commit>=3.6",
+    "tox>=4.12",
+    "nox>=2024.3",
+
+    # Documentation
+    "mkdocs>=1.5",
+    "mkdocstrings>=0.24",
+    "mkdocstrings-python>=1.9",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["projectionai*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+"projectionai" = ["py.typed"]
+"projectionai.infrastructure.renderer.shaders" = ["*.glsl", "*.vert", "*.frag"]
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 88
+force_sort_within_sections = true
+order_by_type = false
+known_first_party = ["projectionai"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # naming
+    "UP",  # pyupgrade
+    "B",   # bugbear
+    "SIM", # simplify
+    "ARG", # unused arguments
+    "RUF", # ruff specific
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "ARG002",  # unused-method-argument — intentional in interface stubs
+]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**/*" = ["ARG001"]
+"src/projectionai/infrastructure/renderer/passes/*" = ["ARG002"]
+"src/projectionai/editor/gizmo_manager.py" = ["ARG002"]
+"src/projectionai/editor/selection_manager.py" = ["ARG002"]
+"src/projectionai/editor/viewport_controller.py" = ["ARG002"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+pretty = true
+show_error_codes = true
+exclude = [
+    "tests/",
+    "scripts/",
+    "build/",
+    "infrastructure/renderer/shaders/",
+]
+disable_error_code = [
+    "import-untyped",
+]
+follow_imports = "normal"
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = [
+    "cv2.*",
+    "open3d.*",
+    "trimesh.*",
+    "ModernGL.*",
+    "PySide6.*",
+    "PyOpenGL.*",
+    "glfw.*",
+    "PIL.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*", "test_*"]
+addopts = [
+    "--tb=short",
+    "--strict-config",
+    "--strict-markers",
+    "-ra",
+    "--cov=src/projectionai",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "requires_gpu: marks tests that require a GPU",
+    "requires_camera: marks tests that require a camera",
+]
+
+[tool.coverage.run]
+source = ["projectionai"]
+omit = [
+    "tests/*",
+    "scripts/*",
+    "**/__init__.py",
+]
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
+
+[tool.coverage.html]
+directory = "coverage_html"
