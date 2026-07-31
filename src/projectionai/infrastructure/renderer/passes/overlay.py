@@ -5,8 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from projectionai.infrastructure.renderer.pipeline_pass import RenderPass
+
+# Colour (RGBA, 0..1) for the calibration board-corner overlay lines.
+# Mirrors ``CalibrationOverlay.CORNER_COLOR`` in the editor layer.
+_CALIBRATION_COLOR: NDArray[np.float32] = np.array(
+    [0.2, 1.0, 0.4, 1.0], dtype=np.float32
+)
 
 
 class OverlayPass(RenderPass):
@@ -23,6 +30,12 @@ class OverlayPass(RenderPass):
         self._axis_shader: Any = None
         self._axis_vao: Any = None
         self._quad_vao: Any = None
+
+        # Calibration corner overlay (pixel-space line vertices)
+        self._corner_lines: NDArray[np.float32] | None = None
+        self._corner_vao: Any = None
+        self._corner_vbo: Any = None
+        self._corner_dirty: bool = False
 
         # Statistics
         self._show_fps: bool = True
@@ -68,6 +81,50 @@ class OverlayPass(RenderPass):
         self._frame_time = frame_time
         self._draw_calls = draw_calls
         self._triangles = triangles
+
+    # -- Calibration corner overlay ------------------------------------------
+
+    def set_corner_lines(self, corners: NDArray[np.float32] | None) -> None:
+        """Set the calibration board-corner line vertices (pixel space).
+
+        Args:
+            corners: Line vertices with shape ``(M, 2)`` in viewport pixel
+                coordinates, or ``None`` to clear the corner overlay.
+                Consecutive pairs of vertices form one line segment.
+        """
+        if corners is None:
+            self._corner_lines = None
+        else:
+            corners = np.asarray(corners, dtype=np.float32)
+            if corners.ndim != 2 or corners.shape[1] != 2:
+                raise ValueError(f"corners must have shape (M, 2), got {corners.shape}")
+            self._corner_lines = corners.copy()
+        self._corner_dirty = True
+
+    def _rebuild_corner_vao(self, ctx: Any) -> None:
+        """(Re)build the corner-line VAO from the current vertex data."""
+        if self._corner_vao is not None:
+            self._corner_vao.release()
+            self._corner_vao = None
+        if self._corner_vbo is not None:
+            self._corner_vbo.release()
+            self._corner_vbo = None
+        self._corner_dirty = False
+
+        if self._corner_lines is None or self._corner_lines.shape[0] == 0:
+            return
+        if self._shader is None:
+            return
+
+        # Interleave position (2f) + colour (4f) for the overlay shader.
+        n = self._corner_lines.shape[0]
+        colors = np.tile(_CALIBRATION_COLOR, (n, 1))
+        data = np.hstack([self._corner_lines, colors]).astype(np.float32)
+        self._corner_vbo = ctx.buffer(data.tobytes())
+        self._corner_vao = ctx.vertex_array(
+            self._shader.program,
+            [(self._corner_vbo, "2f 4f", "in_position", "in_color")],
+        )
 
     def setup(self, ctx: Any, width: int, height: int) -> None:
         from projectionai.infrastructure.renderer.shader import Shader
@@ -140,6 +197,15 @@ class OverlayPass(RenderPass):
             self._axis_shader.set_float("u_scale", 0.5)
             self._axis_vao.render(moderngl.LINES)
 
+        # Calibration corner overlay (2D screen-space lines, pixel coords)
+        if self._corner_lines is not None:
+            if self._corner_dirty:
+                self._rebuild_corner_vao(ctx)
+            if self._corner_vao is not None:
+                self._shader.use()
+                self._shader["u_viewport_size"] = viewport_size
+                self._corner_vao.render(moderngl.LINES)
+
         ctx.disable(moderngl.BLEND)
         ctx.enable(moderngl.DEPTH_TEST)
 
@@ -156,3 +222,11 @@ class OverlayPass(RenderPass):
         if self._quad_vao:
             self._quad_vao.release()
             self._quad_vao = None
+        if self._corner_vao:
+            self._corner_vao.release()
+            self._corner_vao = None
+        if self._corner_vbo:
+            self._corner_vbo.release()
+            self._corner_vbo = None
+        self._corner_lines = None
+        self._corner_dirty = False

@@ -29,13 +29,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 
 import numpy as np
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QSurfaceFormat, QWheelEvent
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
+from projectionai.core.events import (
+    CalibrationComplete,
+    CalibrationFailed,
+    CalibrationProgress,
+    CalibrationStarted,
+)
 from projectionai.editor.events import SelectionChanged
 from projectionai.editor.viewport_controller import ViewportController
 from projectionai.infrastructure.renderer.camera import (
@@ -46,6 +52,9 @@ from projectionai.infrastructure.renderer.camera import (
 from projectionai.infrastructure.renderer.context import RenderContext
 from projectionai.infrastructure.renderer.renderer import Renderer
 from projectionai.infrastructure.renderer.settings import RendererSettings
+
+if TYPE_CHECKING:
+    from projectionai.services.camera_calibration import BoardDetection
 
 _logger = logging.getLogger(__name__)
 
@@ -86,6 +95,10 @@ class ViewportWidget(QOpenGLWidget):
         self._renderer: Renderer | None = None
         self._controller: ViewportController | None = None
         self._gl_initialized: bool = False
+
+        # Overlay pass + calibration corner sync state
+        self._overlay_pass: Any = None
+        self._last_calibration_revision: int = -1
 
         # Mouse state (raw Qt-level, before InputManager)
         self._last_mouse_pos: QPoint = QPoint(0, 0)
@@ -140,6 +153,18 @@ class ViewportWidget(QOpenGLWidget):
             self._on_selection_changed,
         )
 
+        # Cache the overlay pass for calibration corner syncing
+        pipeline = self._renderer.pipeline
+        self._overlay_pass = pipeline.get_pass("overlay") if pipeline else None
+
+        # Wire core calibration events to the calibration overlay
+        if self._core_event_bus is not None:
+            bus = self._core_event_bus
+            bus.subscribe(CalibrationStarted, self._on_calibration_started)
+            bus.subscribe(CalibrationProgress, self._on_calibration_progress)
+            bus.subscribe(CalibrationComplete, self._on_calibration_complete)
+            bus.subscribe(CalibrationFailed, self._on_calibration_failed)
+
         self._gl_initialized = True
         self.initialized.emit()
         _logger.info("Editor ViewportWidget initialized (%dx%d)", w, h)
@@ -158,6 +183,7 @@ class ViewportWidget(QOpenGLWidget):
         # Update editor animation
         if self._controller is not None:
             self._controller.update(1.0 / 60.0)
+            self._sync_calibration_overlay()
 
         # Render
         self._renderer.begin_frame()
@@ -167,6 +193,61 @@ class ViewportWidget(QOpenGLWidget):
         fps = self._renderer.fps
         if fps > 0:
             self.fps_updated.emit(fps)
+
+    # -- Calibration overlay --------------------------------------------------
+
+    def show_calibration_detection(self, detection: BoardDetection | None) -> None:
+        """Display a board detection in the viewport calibration overlay.
+
+        Args:
+            detection: Board detection (``corners`` ``(N, 2)`` in pixel
+                space and ``image_size`` ``(width, height)``), or ``None``
+                to clear the detection.
+        """
+        if self._controller is None:
+            return
+        if detection is None:
+            self._controller.clear_calibration()
+            return
+        corners = np.asarray(detection.corners, dtype=np.float32)
+        self._controller.set_calibration_detection(corners, detection.image_size)
+
+    async def _on_calibration_started(self, event: Any) -> None:
+        """Core bus: a calibration session started."""
+        self._set_calibration_status(0.0, "Calibration started")
+
+    async def _on_calibration_progress(self, event: Any) -> None:
+        """Core bus: calibration progress update."""
+        self._set_calibration_status(event.progress, event.status)
+
+    async def _on_calibration_complete(self, event: Any) -> None:
+        """Core bus: calibration finished successfully."""
+        self._set_calibration_status(1.0, "Calibration complete")
+
+    async def _on_calibration_failed(self, event: Any) -> None:
+        """Core bus: calibration failed."""
+        self._set_calibration_status(0.0, f"Calibration failed: {event.reason}")
+
+    def _set_calibration_status(self, progress: float, status_text: str) -> None:
+        """Push a calibration status update into the controller overlay."""
+        if self._controller is not None:
+            self._controller.set_calibration_status(progress, status_text)
+
+    def _sync_calibration_overlay(self) -> None:
+        """Push changed calibration corner vertices to the overlay pass.
+
+        Called once per frame; skips the push while the overlay data has
+        not changed (tracked via :attr:`CalibrationOverlay.revision`).
+        """
+        if self._controller is None or self._overlay_pass is None:
+            return
+        overlay = self._controller.overlays.calibration
+        if overlay.revision == self._last_calibration_revision:
+            return
+        self._last_calibration_revision = overlay.revision
+        self._overlay_pass.set_corner_lines(
+            overlay.vertices if overlay.enabled else None
+        )
 
     # -- Mouse events -------------------------------------------------------
 

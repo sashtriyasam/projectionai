@@ -43,6 +43,7 @@ Key design decisions:
 from __future__ import annotations
 
 from projectionai.editor.axis_renderer import AxisRenderer
+from projectionai.editor.calibration_overlay import CalibrationOverlay
 from projectionai.editor.camera_controller import CameraController
 from projectionai.editor.coordinate_system import CoordinateSystem
 from projectionai.editor.editor_preferences import EditorPreferences

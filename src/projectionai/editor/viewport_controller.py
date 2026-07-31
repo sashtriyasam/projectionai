@@ -140,6 +140,38 @@ class ViewportController:
         """Overlay (grid, axes, etc.) renderer."""
         return self._overlays
 
+    # -- Calibration overlay --------------------------------------------------
+
+    def set_calibration_status(self, progress: float, status_text: str) -> None:
+        """Update the calibration overlay status and request a redraw.
+
+        Args:
+            progress: Calibration progress in the range ``0.0`` — ``1.0``.
+            status_text: Human-readable status message.
+        """
+        self._overlays.calibration.set_status(progress, status_text)
+        self._editor_bus.emit(ViewportDirty())
+
+    def set_calibration_detection(
+        self,
+        corners: NDArray[np.float32] | None,
+        image_size: tuple[int, int],
+    ) -> None:
+        """Display the latest board detection in the calibration overlay.
+
+        Args:
+            corners: Detected corner positions ``(N, 2)`` in pixel space,
+                or ``None`` to clear the detection.
+            image_size: ``(width, height)`` of the source frame.
+        """
+        self._overlays.calibration.set_detection(corners, image_size)
+        self._editor_bus.emit(ViewportDirty())
+
+    def clear_calibration(self) -> None:
+        """Clear the calibration overlay and request a redraw."""
+        self._overlays.calibration.clear()
+        self._editor_bus.emit(ViewportDirty())
+
     @property
     def snap(self) -> SnapManager:
         """Snapping configuration."""

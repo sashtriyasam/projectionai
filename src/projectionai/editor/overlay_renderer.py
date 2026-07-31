@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from projectionai.editor.axis_renderer import AxisRenderer
+from projectionai.editor.calibration_overlay import CalibrationOverlay
 from projectionai.editor.grid_renderer import GridRenderer
 from projectionai.editor.types import EditorViewState
 
@@ -22,6 +23,7 @@ class OverlayRenderer:
     def __init__(self) -> None:
         self._grid = GridRenderer()
         self._axes = AxisRenderer()
+        self._calibration = CalibrationOverlay()
 
         # Future overlay components
         self._show_bounding_boxes: bool = False
@@ -39,6 +41,11 @@ class OverlayRenderer:
     def axes(self) -> AxisRenderer:
         """The world-axis overlay."""
         return self._axes
+
+    @property
+    def calibration(self) -> CalibrationOverlay:
+        """The calibration board-detection overlay."""
+        return self._calibration
 
     # -- Toggles ------------------------------------------------------------
 
