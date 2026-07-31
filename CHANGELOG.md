@@ -1,9 +1,10 @@
 # Changelog
 
-## v0.1.0.dev0 (Unreleased)
+## [0.1.0] - 2026-07-31
 
 ### Added
 
+- Initial release of ProjectionAI
 - Initial project scaffold with `src/` layout
 - PySide6 UI framework with main window and viewport widget
 - ModernGL-based render pipeline with ordered passes (background, scene, grid, selection, overlay, debug)
@@ -15,11 +16,13 @@
 - Type-safe event bus for decoupled cross-layer communication
 - Camera controller with orbit/pan/zoom interaction
 - Editor subsystems: selection manager, snap manager, gizmo manager, transform tools, input manager
-- Comprehensive test suite with 390+ tests covering domain, editor, infrastructure, and core layers
+- Concrete managers: scene, asset, project, job, plugin, settings, workspace, command
+- Projector calibration pipeline with validation
+- Comprehensive test suite with 399 tests covering domain, editor, infrastructure, and core layers
 
 ### Changed
 
-- N/A (initial release)
+- License changed from Proprietary to MIT
 
 ### Fixed
 

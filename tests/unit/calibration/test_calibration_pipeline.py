@@ -12,7 +12,6 @@ from projectionai.calibration.pipeline import (
 )
 from projectionai.calibration.types import CalibrationStageType
 
-
 # -- Helper stages ------------------------------------------------------------
 
 

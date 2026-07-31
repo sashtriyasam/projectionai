@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from projectionai.calibration.types import (
     CalibrationData,
     CalibrationResult,
@@ -149,7 +147,6 @@ class TestPoseSanityCheck:
 
     def test_detects_nan(self) -> None:
         check = PoseSanityCheck()
-        import math
 
         data = CalibrationData(
             projector_pose={"p1": {"x": float("nan")}},
@@ -170,7 +167,6 @@ class TestPoseSanityCheck:
 
     def test_detects_nan_in_camera(self) -> None:
         check = PoseSanityCheck()
-        import math
 
         data = CalibrationData(
             camera_pose={"c1": {"rotation": float("nan")}},

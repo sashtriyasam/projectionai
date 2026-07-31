@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from projectionai.editor.selection_manager import SelectionManager
 from projectionai.editor.types import SelectionMode
 

@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-000000)](https://docs.astral.sh/ruff/)
 [![Checked with mypy](https://img.shields.io/badge/mypy-strict-blue)](https://mypy-lang.org/)
-[![License](https://img.shields.io/badge/license-Proprietary-red)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Scan any object — a painting, sculpture, building facade, or stage — and ProjectionAI automatically estimates its geometry, detects projection surfaces, and lets you generate and warp content onto it using natural language prompts.
 
@@ -74,14 +74,17 @@ pre-commit install
 
 ```
 src/projectionai/          # Main package
-├── core/                  # Framework: plugin system, event bus, config, errors
-├── domain/                # Business models: scene, object, surface, calibration
+├── core/                  # Framework: event bus, plugin system, config, errors
+├── domain/                # Business models: scene, project, surface, calibration
 ├── services/              # Abstractions: vision, AI, renderer, calibration, storage
 ├── infrastructure/        # Implementations: AI providers, OpenCV, ModernGL, SQLite
 ├── application/           # Use cases: scan, generate, warp, preview, project
+├── managers/              # Concrete managers: scene, asset, project, job, plugin, settings, workspace, command
+├── editor/                # Editor subsystems: selection, gizmos, transform tools, camera
+├── calibration/           # Projector calibration: pipeline, models, validation
 ├── ui/                    # PySide6: main window, viewmodels, views, widgets
-├── app.py                # Application bootstrap / DI container
-└── main.py               # CLI entry point
+├── app.py                 # Application bootstrap / DI container
+└── main.py                # CLI entry point
 ```
 
 See [docs/Architecture.md](docs/Architecture.md) for detailed documentation and [docs/ADR/](docs/ADR/) for architecture decision records.
@@ -105,6 +108,12 @@ Set the active provider via `PROJECTIONAI_AI_PROVIDER` in `.env`.
 
 ---
 
+## Project Status
+
+Current release: **v0.1.0** — see the [Roadmap](docs/Roadmap.md) for milestone tracking and [CHANGELOG.md](CHANGELOG.md) for release history.
+
+---
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and PR workflow.
@@ -113,4 +122,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and PR
 
 ## License
 
-Proprietary. All rights reserved.
+Licensed under the [MIT License](LICENSE).

@@ -16,7 +16,7 @@ def test_default_state() -> None:
 def test_axis_vertices() -> None:
     axes = AxisRenderer()
     verts = axes.vertices
-    assert verts.shape == (6, 3)  # 3 axes × 2 vertices each
+    assert verts.shape == (6, 3)  # 3 axes x 2 vertices each
 
 
 def test_axis_colors() -> None:

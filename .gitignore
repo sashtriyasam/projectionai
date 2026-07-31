@@ -78,6 +78,7 @@ tmp/
 # Graph
 .codegraph/
 .omo/
+graphify-out/
 
 # Build artifacts
 *.whl

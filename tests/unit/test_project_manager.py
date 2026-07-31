@@ -14,7 +14,7 @@ from projectionai.core.events import (
     ProjectOpened,
     ProjectSaved,
 )
-from projectionai.domain.project import Project, ProjectMetadata, ProjectSettings
+from projectionai.domain.project import ProjectMetadata, ProjectSettings
 from projectionai.managers.project_manager import ProjectManager
 
 
@@ -79,7 +79,7 @@ class TestProjectManagerLifecycle:
 
     async def test_open_project(self, manager: ProjectManager, tmp_path: Path) -> None:
         # First create and save a project
-        project = manager.create_project("ToOpen", tmp_path)
+        manager.create_project("ToOpen", tmp_path)
         await manager.save_project()
 
         # Create fresh manager and open
@@ -200,7 +200,6 @@ class TestProjectManagerEdgeCases:
         self, manager: ProjectManager, tmp_path: Path
     ) -> None:
         p1 = manager.create_project("First", tmp_path / "first")
-        mark_before = p1.is_dirty
         manager.create_project("Second", tmp_path / "second", force=True)
         # First project should be marked as closed (dirty)
         assert p1.is_dirty

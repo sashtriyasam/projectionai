@@ -6,11 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from projectionai.core.events import PluginLoaded, PluginUnloaded
 from projectionai.core.errors import PluginNotFoundError
+from projectionai.core.events import PluginLoaded, PluginUnloaded
 from projectionai.core.plugin import (
     PluginDescriptor,
-    get_registry,
     reset_registry,
 )
 from projectionai.managers.plugin_manager import PluginManager

@@ -13,7 +13,7 @@ from projectionai.calibration.projector_model import (
     ProjectorModel,
     ProjectorPose,
 )
-from projectionai.calibration.types import LensType, Mat4x4, Vec3
+from projectionai.calibration.types import LensType, Mat4x4
 
 
 class TestProjectorLens:

@@ -6,8 +6,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from projectionai.editor.editor_preferences import EditorPreferences
 from projectionai.editor.events import EditorEventBus, EditorPreferenceChanged
 

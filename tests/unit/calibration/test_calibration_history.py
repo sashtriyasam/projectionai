@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from projectionai.calibration.history import CalibrationHistory, HistoryEntry
+from projectionai.calibration.history import CalibrationHistory
 from projectionai.calibration.types import (
     CalibrationData,
     CalibrationMethod,
@@ -51,7 +51,7 @@ class TestCalibrationHistory:
 
     def test_get_active_returns_most_recent(self) -> None:
         history = CalibrationHistory()
-        e1 = history.add_entry(_make_result(quality=0.5))
+        history.add_entry(_make_result(quality=0.5))
         e2 = history.add_entry(_make_result(quality=0.9))
         active = history.get_active()
         assert active is not None
@@ -83,7 +83,7 @@ class TestCalibrationHistory:
     def test_remove_entry(self) -> None:
         history = CalibrationHistory()
         e1 = history.add_entry(_make_result())
-        e2 = history.add_entry(_make_result())
+        history.add_entry(_make_result())
         assert history.remove_entry(e1.id)
         assert history.count == 1
         assert history.get_entry(e1.id) is None
@@ -115,7 +115,7 @@ class TestCalibrationHistory:
 
     def test_best_entry(self) -> None:
         history = CalibrationHistory()
-        e1 = history.add_entry(_make_result(quality=0.5))
+        history.add_entry(_make_result(quality=0.5))
         e2 = history.add_entry(_make_result(quality=0.9))
         best = history.best_entry
         assert best is not None
@@ -123,7 +123,7 @@ class TestCalibrationHistory:
 
     def test_latest_entry(self) -> None:
         history = CalibrationHistory()
-        e1 = history.add_entry(_make_result())
+        history.add_entry(_make_result())
         e2 = history.add_entry(_make_result())
         assert history.latest_entry is not None
         assert history.latest_entry.id == e2.id
