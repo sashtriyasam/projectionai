@@ -358,6 +358,57 @@ class CalibrationFailed(Event):
     reason: str
 
 
+# -- Camera events ----------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CameraListRefreshed(Event):
+    """Emitted after camera enumeration completes."""
+
+    camera_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CameraOpened(Event):
+    """Emitted when a camera device is opened."""
+
+    camera_id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class CameraClosed(Event):
+    """Emitted when a camera device is closed."""
+
+    camera_id: str
+
+
+@dataclass(frozen=True)
+class CameraFrameCaptured(Event):
+    """Emitted when a frame is captured from a camera."""
+
+    camera_id: str
+    frame_number: int
+    width: int
+    height: int
+
+
+@dataclass(frozen=True)
+class CameraDisconnected(Event):
+    """Emitted when a camera disconnects or becomes unavailable."""
+
+    camera_id: str
+
+
+@dataclass(frozen=True)
+class CameraPropertyChanged(Event):
+    """Emitted when a camera property (focus, exposure, …) changes."""
+
+    camera_id: str
+    property_name: str
+    value: float | None
+
+
 # -- Generation events ------------------------------------------------------
 
 

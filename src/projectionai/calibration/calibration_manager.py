@@ -22,7 +22,12 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any, override
+from uuid import uuid4
 
+from projectionai.calibration.camera_stages import (
+    BoardDetectionStage,
+    IntrinsicsCalibrationStage,
+)
 from projectionai.calibration.exporter import (
     CalibrationExporter,
     ExporterRegistry,
@@ -31,12 +36,25 @@ from projectionai.calibration.importer import (
     CalibrationImporter,
     ImporterRegistry,
 )
+from projectionai.calibration.pipeline import StageContext
 from projectionai.calibration.session import CalibrationSession
-from projectionai.calibration.types import CalibrationMethod
+from projectionai.calibration.types import (
+    CalibrationData,
+    CalibrationMethod,
+    CalibrationStatus,
+)
 from projectionai.calibration.validator import CalibrationValidator
 from projectionai.calibration.workspace import CalibrationWorkspace
+from projectionai.core.errors import CameraError
 from projectionai.core.events import EventBus
 from projectionai.managers import Manager
+from projectionai.managers.camera_manager import CameraManager
+from projectionai.managers.job_manager import JobInfo, JobManager
+from projectionai.services.camera import Frame
+from projectionai.services.camera_calibration import (
+    CameraCalibrationAlgorithm,
+    CameraCalibrationResult,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -65,12 +83,16 @@ class CalibrationManager(Manager):
         event_bus: EventBus,
         workspace: CalibrationWorkspace | None = None,
         validator: CalibrationValidator | None = None,
+        camera_manager: CameraManager | None = None,
+        job_manager: JobManager | None = None,
     ) -> None:
         super().__init__(event_bus)
         self._workspace: CalibrationWorkspace = workspace or CalibrationWorkspace(
             event_bus=event_bus
         )
         self._validator: CalibrationValidator = validator or CalibrationValidator()
+        self._camera_manager: CameraManager | None = camera_manager
+        self._job_manager: JobManager | None = job_manager
 
         # Export / import
         self._exporter_registry = ExporterRegistry()
@@ -85,6 +107,16 @@ class CalibrationManager(Manager):
     def workspace(self) -> CalibrationWorkspace:
         """The calibration workspace."""
         return self._workspace
+
+    @property
+    def camera_manager(self) -> CameraManager | None:
+        """The camera manager used for frame capture (``None`` if unset)."""
+        return self._camera_manager
+
+    @property
+    def job_manager(self) -> JobManager | None:
+        """The job manager used for background calibration (``None`` if unset)."""
+        return self._job_manager
 
     @property
     def validator(self) -> CalibrationValidator:
@@ -221,6 +253,139 @@ class CalibrationManager(Manager):
             "projector_pose": data.projector_pose,
             "camera_pose": data.camera_pose,
             "surface_pose": data.surface_pose,
+        }
+
+    # -- Camera calibration --------------------------------------------------
+
+    async def run_camera_calibration(
+        self,
+        camera_id: str,
+        algorithm: CameraCalibrationAlgorithm,
+        *,
+        session_name: str = "Camera Calibration",
+        num_frames: int = 20,
+    ) -> CalibrationSession:
+        """Run a camera intrinsic calibration workflow end-to-end.
+
+        Captures *num_frames* frames from *camera_id*, runs board detection
+        and intrinsics stages through the session pipeline, persists the
+        result into the session's calibration data, and finalises the
+        session (history entry + ``CalibrationComplete`` event).
+
+        Returns:
+            The completed session. Check ``session.result.success`` and
+            ``session.result.error_message`` for the outcome.
+        """
+        if self._camera_manager is None:
+            msg = "CalibrationManager has no camera manager - cannot capture frames"
+            raise RuntimeError(msg)
+        if num_frames < 1:
+            raise ValueError("num_frames must be at least 1")
+
+        session = self.create_session(
+            name=session_name, method=CalibrationMethod.CHESSBOARD
+        )
+        session.state.active_camera_id = camera_id
+        await session.start(CalibrationMethod.CHESSBOARD)
+
+        # -- Acquire frames --------------------------------------------------
+        session.state.status = CalibrationStatus.ACQUIRING
+        frames: list[Frame] = []
+        for index in range(num_frames):
+            try:
+                frame = await self._camera_manager.capture_frame(camera_id)
+            except CameraError as exc:
+                await session.fail(f"Frame capture failed: {exc}")
+                session.finalize()
+                return session
+            frames.append(frame)
+            session.update_progress(
+                (index + 1) / (num_frames + 2),
+                f"Captured frame {index + 1}/{num_frames}",
+                stage="capture",
+            )
+
+        # -- Pipeline: detect + calibrate ------------------------------------
+        session.state.status = CalibrationStatus.PROCESSING
+        session.pipeline.add_stage(BoardDetectionStage(algorithm))
+        session.pipeline.add_stage(IntrinsicsCalibrationStage(algorithm))
+        ctx = StageContext(data={"frames": frames})
+        ctx = await session.pipeline.run(ctx)
+
+        if ctx.errors:
+            await session.fail("; ".join(ctx.errors))
+            session.finalize()
+            return session
+
+        calibration: CameraCalibrationResult = ctx.data["camera_calibration"]
+        self._commit_camera_result(session, camera_id, calibration, ctx)
+        session.state.intermediate_results["detections"] = ctx.data.get(
+            "detections", []
+        )
+        session.state.status = CalibrationStatus.COMPLETED
+        session.update_progress(1.0, "Calibration complete")
+        session.finalize()
+        return session
+
+    def enqueue_camera_calibration(
+        self,
+        camera_id: str,
+        algorithm: CameraCalibrationAlgorithm,
+        *,
+        session_name: str = "Camera Calibration",
+        num_frames: int = 20,
+    ) -> JobInfo | None:
+        """Enqueue a camera calibration run as a background job.
+
+        Returns ``None`` when no ``JobManager`` is available.
+        """
+        if self._job_manager is None:
+            return None
+        job_id = f"camera-calibration-{uuid4().hex[:8]}"
+        return self._job_manager.enqueue(
+            job_id,
+            session_name,
+            self.run_camera_calibration,
+            kwargs={
+                "camera_id": camera_id,
+                "algorithm": algorithm,
+                "session_name": session_name,
+                "num_frames": num_frames,
+            },
+        )
+
+    def _commit_camera_result(
+        self,
+        session: CalibrationSession,
+        camera_id: str,
+        calibration: CameraCalibrationResult,
+        ctx: StageContext,
+    ) -> None:
+        """Persist an intrinsic calibration into the session's calibration data.
+
+        Stores the result under ``CalibrationData.camera_pose[camera_id]`` in
+        the shape :class:`OpenCvExporter` consumes (``camera_matrix``,
+        ``distortion_coeffs``, ``width``, ``height``).
+        """
+        if session.state.data is None:
+            session.state.data = CalibrationData()
+        data = session.state.data
+        data.method = CalibrationMethod.CHESSBOARD
+        data.camera_pose[camera_id] = {
+            "camera_matrix": calibration.camera_matrix.tolist(),
+            "distortion_coeffs": calibration.distortion_coeffs.tolist(),
+            "width": calibration.image_size[0],
+            "height": calibration.image_size[1],
+        }
+        data.reprojection_error = calibration.reprojection_error
+        data.residuals = list(calibration.per_view_errors)
+        data.num_samples = calibration.num_views
+        data.confidence = 1.0
+        data.custom = {
+            "camera_id": camera_id,
+            "image_size": list(calibration.image_size),
+            "per_view_errors": list(calibration.per_view_errors),
+            "warnings": list(ctx.warnings),
         }
 
     # -- Manager lifecycle ----------------------------------------------------

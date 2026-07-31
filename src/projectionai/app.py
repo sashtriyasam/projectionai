@@ -16,10 +16,12 @@ import anyio
 from platformdirs import user_data_dir
 
 from projectionai import __version__
+from projectionai.calibration import CalibrationManager
 from projectionai.core.config import AppConfig
 from projectionai.core.events import EventBus
 from projectionai.managers import ManagerRegistry
 from projectionai.managers.asset_manager import AssetManager
+from projectionai.managers.camera_manager import CameraManager
 from projectionai.managers.command_manager import CommandManager
 from projectionai.managers.job_manager import JobManager
 from projectionai.managers.plugin_manager import PluginManager
@@ -116,6 +118,11 @@ class Application:
         return self._registry.get_typed("commands", CommandManager)
 
     @property
+    def cameras(self) -> CameraManager:
+        """Shortcut to the camera manager."""
+        return self._registry.get_typed("cameras", CameraManager)
+
+    @property
     def jobs(self) -> JobManager:
         """Shortcut to the job manager."""
         return self._registry.get_typed("jobs", JobManager)
@@ -129,6 +136,11 @@ class Application:
     def workspace(self) -> WorkspaceManager:
         """Shortcut to the workspace manager."""
         return self._registry.get_typed("workspace", WorkspaceManager)
+
+    @property
+    def calibration(self) -> CalibrationManager:
+        """Shortcut to the calibration manager."""
+        return self._registry.get_typed("calibration", CalibrationManager)
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -161,6 +173,7 @@ class Application:
         )
         command_mgr = CommandManager(self._event_bus)
         job_mgr = JobManager(self._event_bus)
+        camera_mgr = CameraManager(self._event_bus, job_manager=job_mgr)
         scene_mgr = SceneManager(self._event_bus)
         asset_mgr = AssetManager(self._event_bus)
         project_mgr = ProjectManager(
@@ -171,17 +184,25 @@ class Application:
             self._event_bus,
             workspace_path=data_dir / "workspace.json",
         )
+        calibration_mgr = CalibrationManager(
+            self._event_bus,
+            camera_manager=camera_mgr,
+            job_manager=job_mgr,
+        )
+        calibration_mgr.data_dir = data_dir / "calibration"
 
         # -- Register in dependency-safe order ------------------------------
 
         self._registry.add("settings", settings_mgr)
         self._registry.add("plugins", plugin_mgr)
         self._registry.add("commands", command_mgr)
+        self._registry.add("cameras", camera_mgr)
         self._registry.add("jobs", job_mgr)
         self._registry.add("scenes", scene_mgr)
         self._registry.add("assets", asset_mgr)
         self._registry.add("project", project_mgr)
         self._registry.add("workspace", workspace_mgr)
+        self._registry.add("calibration", calibration_mgr)
 
         # -- Initialize all managers ----------------------------------------
 

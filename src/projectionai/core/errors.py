@@ -246,6 +246,39 @@ class StorageError(ServiceError):
 
 
 # ---------------------------------------------------------------------------
+# Camera errors
+# ---------------------------------------------------------------------------
+
+
+class CameraError(ServiceError):
+    """Base for camera capture errors."""
+
+
+class CameraNotFoundError(CameraError):
+    """Raised when a requested camera device does not exist."""
+
+
+class CameraOpenError(CameraError):
+    """Raised when a camera device cannot be opened."""
+
+
+class CameraUnavailableError(CameraError):
+    """Raised when a camera is unavailable (disconnected or in use)."""
+
+
+class CameraDisconnectedError(CameraError):
+    """Raised when a previously open camera disconnects mid-operation."""
+
+
+class CameraCaptureError(CameraError):
+    """Raised when frame capture fails."""
+
+
+class CameraPropertyError(CameraError):
+    """Raised when a camera property is unsupported or cannot be set."""
+
+
+# ---------------------------------------------------------------------------
 # AI provider errors
 # ---------------------------------------------------------------------------
 

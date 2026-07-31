@@ -62,6 +62,10 @@ from projectionai.calibration.camera_model import (
     CameraModel,
     CameraPose,
 )
+from projectionai.calibration.camera_stages import (
+    BoardDetectionStage,
+    IntrinsicsCalibrationStage,
+)
 from projectionai.calibration.exporter import (
     CalibrationExporter,
     ExporterRegistry,
@@ -114,6 +118,8 @@ from projectionai.calibration.validator import (
 from projectionai.calibration.workspace import CalibrationWorkspace
 
 __all__ = [
+    # Camera calibration stages
+    "BoardDetectionStage",
     # Quality
     "CalibrationCheck",
     # Types
@@ -146,6 +152,7 @@ __all__ = [
     "ExporterRegistry",
     "HistoryEntry",
     "ImporterRegistry",
+    "IntrinsicsCalibrationStage",
     "LensType",
     "OpenCvExporter",
     "ProjectionMappingExporter",
