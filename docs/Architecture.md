@@ -95,29 +95,31 @@ All managers extend the `Manager` ABC from `managers/__init__.py`, which provide
 Abstract interfaces (Protocols and ABCs) that define what the application needs
 from the outside world. These are **stable** — they change rarely.
 
-| Module           | Interface                             | Methods                                                                            |
-| ---------------- | ------------------------------------- | ---------------------------------------------------------------------------------- |
-| `vision.py`      | `VisionPipeline`                      | `process_frame`, `detect_surfaces`, `estimate_pose`, `compute_calibration`         |
-| `ai.py`          | `AIProvider`                          | `generate`, `chat`, `generate_stream`, `chat_stream`                               |
-| `renderer.py`    | `Renderer`, `WarpEngine`              | `render`, `render_offscreen`, `warp`                                               |
-| `calibration.py` | `Calibrator`                          | `start_calibration`, `add_correspondence`, `compute_calibration`, `auto_calibrate` |
-| `storage.py`     | `StorageService`, `ProjectRepository` | `save`, `load`, `delete`, `list_projects`                                          |
+| Module                  | Interface                             | Methods                                                                            |
+| ----------------------- | ------------------------------------- | ---------------------------------------------------------------------------------- |
+| `vision.py`             | `VisionPipeline`                      | `process_frame`, `detect_surfaces`, `estimate_pose`, `compute_calibration`         |
+| `ai.py`                 | `AIProvider`                          | `generate`, `chat`, `generate_stream`, `chat_stream`                               |
+| `renderer.py`           | `Renderer`, `WarpEngine`              | `render`, `render_offscreen`, `warp`                                               |
+| `calibration.py`        | `Calibrator`                          | `start_calibration`, `add_correspondence`, `compute_calibration`, `auto_calibrate` |
+| `camera_calibration.py` | `CameraCalibrationAlgorithm`          | `detect`, `calibrate`                                                              |
+| `storage.py`            | `StorageService`, `ProjectRepository` | `save`, `load`, `delete`, `list_projects`                                          |
 
 ### Infrastructure (`src/projectionai/infrastructure/`)
 
 Concrete implementations of service interfaces. Swappable.
 
-| Module                          | Implements               | Technology            |
-| ------------------------------- | ------------------------ | --------------------- |
-| `ai/gemini.py`                  | `AIProvider`             | Google Gemini API     |
-| `ai/openai_provider.py`         | `AIProvider`             | OpenAI API            |
-| `ai/anthropic.py`               | `AIProvider`             | Anthropic API         |
-| `ai/replicate.py`               | `AIProvider`             | Replicate API         |
-| `vision/opencv_pipeline.py`     | `VisionPipeline`         | OpenCV                |
-| `renderer/moderngl_renderer.py` | `Renderer`, `WarpEngine` | ModernGL              |
-| `calibration/manual.py`         | `Calibrator`             | Point correspondences |
-| `calibration/automatic.py`      | `Calibrator`             | ICP (Open3D)          |
-| `persistence/database.py`       | `StorageService`         | SQLite via aiosqlite  |
+| Module                          | Implements                   | Technology            |
+| ------------------------------- | ---------------------------- | --------------------- |
+| `ai/gemini.py`                  | `AIProvider`                 | Google Gemini API     |
+| `ai/openai_provider.py`         | `AIProvider`                 | OpenAI API            |
+| `ai/anthropic.py`               | `AIProvider`                 | Anthropic API         |
+| `ai/replicate.py`               | `AIProvider`                 | Replicate API         |
+| `vision/opencv_pipeline.py`     | `VisionPipeline`             | OpenCV                |
+| `renderer/moderngl_renderer.py` | `Renderer`, `WarpEngine`     | ModernGL              |
+| `calibration/manual.py`         | `Calibrator`                 | Point correspondences |
+| `calibration/automatic.py`      | `Calibrator`                 | ICP (Open3D)          |
+| `calibration/chessboard.py`     | `CameraCalibrationAlgorithm` | OpenCV checkerboard   |
+| `persistence/database.py`       | `StorageService`             | SQLite via aiosqlite  |
 
 ### Application (`src/projectionai/application/`)
 
@@ -141,6 +143,17 @@ View (PySide6 widget) ↔ ViewModel (state + commands) ↔ Application/use cases
 - Views are thin: they bind to ViewModel properties and emit user actions
 - ViewModels hold all state and orchestrate application use cases
 - ViewModels are testable without Qt (no QWidget dependency)
+
+### Editor (`src/projectionai/editor/`)
+
+Qt-free viewport interaction layer (testable without a GL context):
+
+- `viewport_controller.py` — per-frame view state (zoom, pan), calibration status/detection API; emits `ViewportDirty` on changes
+- `calibration_overlay.py` — pure-numpy geometry (line vertices/colors) for detected board corners + calibration status text; revision counter gates per-frame sync
+- `overlay_renderer.py` — owns renderer-side overlay state; exposes the calibration overlay
+- `viewport_widget.py` — PySide6 viewport; async handlers for core calibration events (`CalibrationStarted/Progress/Complete/Failed`); syncs overlay geometry to the renderer's `OverlayPass` each frame only when the overlay revision changed
+
+The renderer's `OverlayPass` draws calibration corner lines (`LINES` primitives) through the shared overlay shader using the viewport size uniform.
 
 ## Manager Wiring (`app.py`)
 

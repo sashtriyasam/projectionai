@@ -43,7 +43,7 @@
 - [ ] Feature detection (SIFT/ORB) for correspondence estimation
 - [ ] Planar surface detection (Hough transform / RANSAC)
 - [ ] Pose estimation (PnP solver)
-- [ ] Camera calibration workflow (checkerboard pattern)
+- [x] Camera calibration workflow (checkerboard pattern)
 - [ ] Mesh reconstruction from depth / multi-view (Open3D integration)
 
 ## Milestone 3 — AI Integration (v0.4.0)
