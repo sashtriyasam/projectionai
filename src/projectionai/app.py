@@ -19,6 +19,11 @@ from projectionai import __version__
 from projectionai.calibration import CalibrationManager
 from projectionai.core.config import AppConfig
 from projectionai.core.events import EventBus
+from projectionai.hardware.display_manager import DisplayManager
+from projectionai.hardware.display_validator import DisplayValidator
+from projectionai.hardware.display_watcher import DisplayWatcher
+from projectionai.hardware.hardware_manager import HardwareManager
+from projectionai.hardware.output_manager import OutputManager
 from projectionai.managers import ManagerRegistry
 from projectionai.managers.asset_manager import AssetManager
 from projectionai.managers.camera_manager import CameraManager
@@ -46,12 +51,23 @@ class Application:
     top-level services. Uses dependency injection to wire components.
     """
 
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        camera_manager: CameraManager | None = None,
+        job_manager: JobManager | None = None,
+        hardware_manager: HardwareManager | None = None,
+    ) -> None:
         self._config: AppConfig = config
         self._event_bus: EventBus = EventBus()
         self._registry: ManagerRegistry = ManagerRegistry(self._event_bus)
         self._managers_initialized: bool = False
         self._data_dir: Path | None = None
+
+        # Injectable managers — used by tests; None = construct in initialize()
+        self._camera_manager: CameraManager | None = camera_manager
+        self._job_manager: JobManager | None = job_manager
+        self._hardware_manager: HardwareManager | None = hardware_manager
 
         # Services — lazy-initialized after managers
         self._ai_service: _Shutdownable | None = None
@@ -142,6 +158,11 @@ class Application:
         """Shortcut to the calibration manager."""
         return self._registry.get_typed("calibration", CalibrationManager)
 
+    @property
+    def hardware(self) -> HardwareManager:
+        """Shortcut to the hardware manager."""
+        return self._registry.get_typed("hardware", HardwareManager)
+
     # -- Lifecycle ----------------------------------------------------------
 
     async def initialize(self) -> None:
@@ -172,8 +193,10 @@ class Application:
             plugin_dirs=[data_dir / "plugins"],
         )
         command_mgr = CommandManager(self._event_bus)
-        job_mgr = JobManager(self._event_bus)
-        camera_mgr = CameraManager(self._event_bus, job_manager=job_mgr)
+        job_mgr = self._job_manager or JobManager(self._event_bus)
+        camera_mgr = self._camera_manager or CameraManager(
+            self._event_bus, job_manager=job_mgr
+        )
         scene_mgr = SceneManager(self._event_bus)
         asset_mgr = AssetManager(self._event_bus)
         project_mgr = ProjectManager(
@@ -191,6 +214,30 @@ class Application:
         )
         calibration_mgr.data_dir = data_dir / "calibration"
 
+        if self._hardware_manager is None:
+            display_mgr = DisplayManager(self._event_bus)
+            watcher = DisplayWatcher(
+                self._event_bus,
+                display_manager=display_mgr,
+                poll_interval_s=1.0,
+            )
+            validator = DisplayValidator()
+            output_mgr = OutputManager(
+                self._event_bus,
+                display_manager=display_mgr,
+                validator=validator,
+                renderer_ready_provider=lambda: self._renderer is not None,
+            )
+            hardware_mgr = HardwareManager(
+                self._event_bus,
+                display_manager=display_mgr,
+                watcher=watcher,
+                output_manager=output_mgr,
+                validator=validator,
+            )
+        else:
+            hardware_mgr = self._hardware_manager
+
         # -- Register in dependency-safe order ------------------------------
 
         self._registry.add("settings", settings_mgr)
@@ -203,6 +250,7 @@ class Application:
         self._registry.add("project", project_mgr)
         self._registry.add("workspace", workspace_mgr)
         self._registry.add("calibration", calibration_mgr)
+        self._registry.add("hardware", hardware_mgr)
 
         # -- Initialize all managers ----------------------------------------
 
