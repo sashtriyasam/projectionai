@@ -73,16 +73,17 @@ Pure business entities. No UI, no infrastructure, no framework imports.
 
 The manager layer is the operational heart of the application. Each manager owns a single concern and communicates via events.
 
-| Manager            | Responsibility                                                   | Events Emitted                                                                           |
-| ------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `SettingsManager`  | Pydantic-typed settings with per-category mutation & persistence | `SettingsChanged`                                                                        |
-| `PluginManager`    | Capability-based plugin lifecycle (discovery → load → shutdown)  | `PluginLoaded`, `PluginUnloaded`, `PluginError`                                          |
-| `CommandManager`   | Undo/redo command stack with transaction support                 | `CommandExecuted`, `CommandUndone`, `CommandRedone`, `CommandHistoryCleared`             |
-| `SceneManager`     | Multi-scene graph management, node CRUD, selection tracking      | `SceneCreated`, `SceneActivated`, `SceneChanged`, `NodeSelected`, `NodeTransformChanged` |
-| `AssetManager`     | In-memory asset database with dependency graph and search        | `AssetImported`, `AssetDeleted`, `AssetUpdated`                                          |
-| `JobManager`       | Background thread pool job queue with priority, progress, cancel | `JobQueued`, `JobStarted`, `JobProgress`, `JobCompleted`, `JobFailed`, `JobCancelled`    |
-| `ProjectManager`   | Project lifecycle (create/open/save/close), recent-projects list | `ProjectCreated`, `ProjectOpened`, `ProjectSaved`, `ProjectClosed`, `ProjectModified`    |
-| `WorkspaceManager` | UI layout/panel state management with persistence                | `WorkspaceLayoutChanged`, `WorkspaceSettingsChanged`                                     |
+| Manager            | Responsibility                                                                 | Events Emitted                                                                                                                                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SettingsManager`  | Pydantic-typed settings with per-category mutation & persistence               | `SettingsChanged`                                                                                                                                                                                                                |
+| `PluginManager`    | Capability-based plugin lifecycle (discovery → load → shutdown)                | `PluginLoaded`, `PluginUnloaded`, `PluginError`                                                                                                                                                                                  |
+| `CommandManager`   | Undo/redo command stack with transaction support                               | `CommandExecuted`, `CommandUndone`, `CommandRedone`, `CommandHistoryCleared`                                                                                                                                                     |
+| `SceneManager`     | Multi-scene graph management, node CRUD, selection tracking                    | `SceneCreated`, `SceneActivated`, `SceneChanged`, `NodeSelected`, `NodeTransformChanged`                                                                                                                                         |
+| `AssetManager`     | In-memory asset database with dependency graph and search                      | `AssetImported`, `AssetDeleted`, `AssetUpdated`                                                                                                                                                                                  |
+| `JobManager`       | Background thread pool job queue with priority, progress, cancel               | `JobQueued`, `JobStarted`, `JobProgress`, `JobCompleted`, `JobFailed`, `JobCancelled`                                                                                                                                            |
+| `ProjectManager`   | Project lifecycle (create/open/save/close), recent-projects list               | `ProjectCreated`, `ProjectOpened`, `ProjectSaved`, `ProjectClosed`, `ProjectModified`                                                                                                                                            |
+| `WorkspaceManager` | UI layout/panel state management with persistence                              | `WorkspaceLayoutChanged`, `WorkspaceSettingsChanged`                                                                                                                                                                             |
+| `HardwareManager`  | Display topology + output facade (aggregates DisplayManager/Validator/Watcher) | `DisplayConnected`, `DisplayDisconnected`, `DisplayChanged`, `DisplayResolutionChanged`, `DisplayRefreshRateChanged`, `OutputSessionStarted/Ended`, `OutputPreviewChanged`, `OutputArmed`, `OutputLiveStarted`, `OutputBlackout` |
 
 All managers extend the `Manager` ABC from `managers/__init__.py`, which provides:
 
@@ -95,31 +96,85 @@ All managers extend the `Manager` ABC from `managers/__init__.py`, which provide
 Abstract interfaces (Protocols and ABCs) that define what the application needs
 from the outside world. These are **stable** — they change rarely.
 
-| Module                  | Interface                             | Methods                                                                            |
-| ----------------------- | ------------------------------------- | ---------------------------------------------------------------------------------- |
-| `vision.py`             | `VisionPipeline`                      | `process_frame`, `detect_surfaces`, `estimate_pose`, `compute_calibration`         |
-| `ai.py`                 | `AIProvider`                          | `generate`, `chat`, `generate_stream`, `chat_stream`                               |
-| `renderer.py`           | `Renderer`, `WarpEngine`              | `render`, `render_offscreen`, `warp`                                               |
-| `calibration.py`        | `Calibrator`                          | `start_calibration`, `add_correspondence`, `compute_calibration`, `auto_calibrate` |
-| `camera_calibration.py` | `CameraCalibrationAlgorithm`          | `detect`, `calibrate`                                                              |
-| `storage.py`            | `StorageService`, `ProjectRepository` | `save`, `load`, `delete`, `list_projects`                                          |
+| Module                     | Interface                             | Methods                                                                            |
+| -------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------- |
+| `vision.py`                | `VisionPipeline`                      | `process_frame`, `detect_surfaces`, `estimate_pose`, `compute_calibration`         |
+| `ai.py`                    | `AIProvider`                          | `generate`, `chat`, `generate_stream`, `chat_stream`                               |
+| `renderer.py`              | `Renderer`, `WarpEngine`              | `render`, `render_offscreen`, `warp`                                               |
+| `calibration.py`           | `Calibrator`                          | `start_calibration`, `add_correspondence`, `compute_calibration`, `auto_calibrate` |
+| `camera_calibration.py`    | `CameraCalibrationAlgorithm`          | `detect`, `calibrate`                                                              |
+| `projector_calibration.py` | `ProjectorCalibrationAlgorithm`       | `build_sequence`, `decode`, `calibrate`, `project_points`                          |
+| `display.py`               | `DisplayProvider`                     | `list_displays`, `connect`, `replace`, `disconnect`, `get`                         |
+| `storage.py`               | `StorageService`, `ProjectRepository` | `save`, `load`, `delete`, `list_projects`                                          |
 
 ### Infrastructure (`src/projectionai/infrastructure/`)
 
 Concrete implementations of service interfaces. Swappable.
 
-| Module                          | Implements                   | Technology            |
-| ------------------------------- | ---------------------------- | --------------------- |
-| `ai/gemini.py`                  | `AIProvider`                 | Google Gemini API     |
-| `ai/openai_provider.py`         | `AIProvider`                 | OpenAI API            |
-| `ai/anthropic.py`               | `AIProvider`                 | Anthropic API         |
-| `ai/replicate.py`               | `AIProvider`                 | Replicate API         |
-| `vision/opencv_pipeline.py`     | `VisionPipeline`             | OpenCV                |
-| `renderer/moderngl_renderer.py` | `Renderer`, `WarpEngine`     | ModernGL              |
-| `calibration/manual.py`         | `Calibrator`                 | Point correspondences |
-| `calibration/automatic.py`      | `Calibrator`                 | ICP (Open3D)          |
-| `calibration/chessboard.py`     | `CameraCalibrationAlgorithm` | OpenCV checkerboard   |
-| `persistence/database.py`       | `StorageService`             | SQLite via aiosqlite  |
+| Module                          | Implements                      | Technology                                                     |
+| ------------------------------- | ------------------------------- | -------------------------------------------------------------- |
+| `ai/gemini.py`                  | `AIProvider`                    | Google Gemini API                                              |
+| `ai/openai_provider.py`         | `AIProvider`                    | OpenAI API                                                     |
+| `ai/anthropic.py`               | `AIProvider`                    | Anthropic API                                                  |
+| `ai/replicate.py`               | `AIProvider`                    | Replicate API                                                  |
+| `vision/opencv_pipeline.py`     | `VisionPipeline`                | OpenCV                                                         |
+| `renderer/moderngl_renderer.py` | `Renderer`, `WarpEngine`        | ModernGL                                                       |
+| `calibration/manual.py`         | `Calibrator`                    | Point correspondences                                          |
+| `calibration/automatic.py`      | `Calibrator`                    | ICP (Open3D)                                                   |
+| `calibration/chessboard.py`     | `CameraCalibrationAlgorithm`    | OpenCV checkerboard                                            |
+| `projector_calibration/`        | `ProjectorCalibrationAlgorithm` | Structured light, gray-code MVP (patterns, decode, estimators) |
+| `persistence/database.py`       | `StorageService`                | SQLite via aiosqlite                                           |
+| `display/qt_provider.py`        | `DisplayProvider`               | Qt screen enumeration                                          |
+| `display/mock_provider.py`      | `DisplayProvider`               | Deterministic mock                                             |
+
+### Hardware (`src/projectionai/hardware/`)
+
+The hardware management & display validation subsystem. Owns the
+physical-display abstraction: topology tracking, change detection,
+validation gates, output sessions, and a facade over the whole stack.
+
+| Module                 | Responsibility                                                                                      |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| `models.py`            | `DisplayInfo`, `DisplayMode`, `DisplayCapabilities`, `HardwareStatus`, `OutputWindow`               |
+| `classifier.py`        | `DisplayClassifier` / `DisplayKind` — kinds displays by vendor/model name                           |
+| `display_manager.py`   | `DisplayManager` — topology cache, per-display diffing, typed change events                         |
+| `display_watcher.py`   | `DisplayWatcher` — polls the provider and triggers manager refresh                                  |
+| `display_validator.py` | `DisplayValidator` — gate checks (renderer ready, projector present, primary, resolution, coverage) |
+| `output_manager.py`    | `OutputManager` — preview/live output sessions with safe switching                                  |
+| `hardware_manager.py`  | `HardwareManager` — facade aggregating manager + validator + watcher                                |
+| `patterns.py`          | `PATTERNS`, `PatternSpec`, `PatternKind` — ID/flat/checker/ramp/grid patterns                       |
+| `events.py`            | Typed events: `DisplayConnected/Disconnected/Changed`, `Output*` lifecycle                          |
+| `patterns.py`          | `PATTERNS`, `PatternSpec`, `PatternKind` — ID/flat/checker/ramp/grid patterns                       |
+| `events.py`            | Typed events: `DisplayConnected/Disconnected/Changed`, `Output*` lifecycle                          |
+| `errors.py`            | `HardwareError` hierarchy                                                                           |
+
+### Calibration (`src/projectionai/calibration/`)
+
+The projector & camera calibration subsystem. Owns the staged calibration
+pipeline, the camera/projector/surface math models, validation gates, and
+import/export — plus a real-hardware validation workflow under
+`hardware_validation/` that captures a full 9-step run into a self-contained
+`CalibrationReport` (JSON + PDF + visualizations).
+
+| Module                        | Responsibility                                                                          |
+| ----------------------------- | --------------------------------------------------------------------------------------- |
+| `types.py`                    | Shared value types: `Vec2`/`Vec3`/`Mat4x4`, `CalibrationData`/`Result`/`State`, enums   |
+| `camera_model.py`             | `CameraModel` — intrinsics, extrinsics, pose                                            |
+| `projector_model.py`          | `ProjectorModel` — lens, intrinsics, extrinsics, pose                                   |
+| `surface_model.py`            | `SurfaceModel` — surface pose for projection targets                                    |
+| `target.py`                   | `CalibrationTarget` — physical target definition                                        |
+| `pipeline.py`                 | `CalibrationStage` ABC, `StageContext`, `CalibrationPipeline` — stage runner            |
+| `camera_stages.py`            | `BoardDetectionStage`, `IntrinsicsCalibrationStage`                                     |
+| `projector_stages.py`         | `CorrespondenceDecodeStage`, `ProjectorPoseStage`                                       |
+| `validator.py`                | `CalibrationCheck` ABC + reprojection/sample-count/confidence/pose-sanity checks        |
+| `session.py`                  | `CalibrationSession` — orchestrates one calibration run                                 |
+| `history.py`                  | `CalibrationHistory`, `HistoryEntry` — undoable calibration steps                       |
+| `profile.py`                  | `CalibrationProfile` — named, reusable calibration presets                              |
+| `workspace.py`                | `CalibrationWorkspace` — session-level state container                                  |
+| `importer.py` / `exporter.py` | Import/export registries: raw JSON, OpenCV, projection-mapping formats                  |
+| `calibration_manager.py`      | `CalibrationManager(Manager)` — registers in the `ManagerRegistry` as `"calibration"`   |
+| `events.py`                   | Typed lifecycle events: stage started/completed/failed, projector/camera/surface events |
+| `hardware_validation/`        | Real-hardware 9-step workflow: `runner.py`, `models.py`, `environment.py`, `export.py`  |
 
 ### Application (`src/projectionai/application/`)
 
@@ -164,7 +219,8 @@ The `Application` class in `app.py` wires all managers in dependency-safe order:
 3. **CommandManager** + **JobManager** — depend on event bus only
 4. **SceneManager** + **AssetManager** — domain managers
 5. **ProjectManager** + **WorkspaceManager** — top-level managers
-6. Infrastructure services — storage, AI, vision, renderer, calibrator
+6. **HardwareManager** — display topology + output stack (DisplayManager → DisplayWatcher → DisplayValidator → OutputManager → HardwareManager facade)
+7. Infrastructure services — storage, AI, vision, renderer, calibrator
 
 Managers are accessed via the `ManagerRegistry`:
 
@@ -179,7 +235,20 @@ scene_mgr = app.managers.get("scenes")
 app.scenes  # SceneManager
 app.project  # ProjectManager
 app.jobs  # JobManager
+app.hardware  # HardwareManager
 ```
+
+The hardware stack is injected in `Application.initialize()` (or passed in as
+`hardware_manager=` for tests): `DisplayManager` (topology cache) is wrapped
+by `DisplayWatcher` (1 s poll), `DisplayValidator` (gate checks), and
+`OutputManager` (sessions, `renderer_ready_provider=lambda: self._renderer is not None`),
+then aggregated behind the `HardwareManager` facade registered as `"hardware"`.
+The readiness callback is `False` until the renderer initializes and drops
+back to `False` after a renderer failure, so output stays gated. The
+always-ready constant provider is preserved only for `hardware_manager=`
+test setups.
+The UI consumes it via `app.hardware`; the status bar reads
+`HardwareManager.snapshot()` for the live display/projector/health summary.
 
 ## Capability-Based Plugin System
 
@@ -303,6 +372,10 @@ ProjectionAIError
 │   ├── AIProviderTimeoutError
 │   ├── AIProviderRateLimitError
 │   └── AIProviderContentFilteredError
+├── HardwareError
+│   ├── DisplayNotFoundError
+│   ├── OutputSessionError
+│   └── OutputSwitchError
 └── PluginError
     ├── PluginNotFoundError
     ├── PluginLoadError
@@ -341,14 +414,14 @@ The API abstracts over the internal structure — consumers work with `Project`,
 
 ## Future Extension Points
 
-| Extension                  | Mechanism                              | Location                             |
-| -------------------------- | -------------------------------------- | ------------------------------------ |
-| New AI provider            | Plugin system + capability descriptor  | `infrastructure/ai/`                 |
-| New renderer               | Implement `Renderer` ABC               | `infrastructure/renderer/`           |
-| New vision algorithm       | Extend or replace `VisionPipeline`     | `infrastructure/vision/`             |
-| New calibration method     | Implement `Calibrator` ABC             | `infrastructure/calibration/`        |
-| Multi-projector            | Add `ProjectorCalibration` to scene    | Existing data model                  |
-| Collaborative editing      | Event bus over WebSocket               | Future: `application/collaboration/` |
-| Hardware projector control | New `infrastructure/hardware/` package | Future                               |
-| MIDI/DMX control           | Plugin system                          | Future                               |
-| Timeline / animation       | New `application/` workflow            | Future                               |
+| Extension               | Mechanism                              | Location                             |
+| ----------------------- | -------------------------------------- | ------------------------------------ |
+| New AI provider         | Plugin system + capability descriptor  | `infrastructure/ai/`                 |
+| New renderer            | Implement `Renderer` ABC               | `infrastructure/renderer/`           |
+| New vision algorithm    | Extend or replace `VisionPipeline`     | `infrastructure/vision/`             |
+| New calibration method  | Implement `Calibrator` ABC             | `infrastructure/calibration/`        |
+| Multi-projector         | Add `ProjectorCalibration` to scene    | Existing data model                  |
+| Collaborative editing   | Event bus over WebSocket               | Future: `application/collaboration/` |
+| Real display hotplug UI | `DisplayProvider` swap (QScreen watch) | `infrastructure/display/`            |
+| MIDI/DMX control        | Plugin system                          | Future                               |
+| Timeline / animation    | New `application/` workflow            | Future                               |
