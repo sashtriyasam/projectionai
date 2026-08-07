@@ -162,6 +162,9 @@ class _FakeApp:
     def primaryScreen(self) -> _FakeScreen | None:  # noqa: N802 - Qt API name
         return self._screens[0] if self._screens else None
 
+    def processEvents(self) -> None:  # noqa: N802 - Qt API name
+        """No-op: satisfies pytest-qt's post-test event processing hook."""
+
 
 class TestQtDisplayProviderIdCollisions:
     """Id enumeration and lookup agree even with duplicate serial/name keys."""
