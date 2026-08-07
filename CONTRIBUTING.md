@@ -1,18 +1,20 @@
 # Contributing to ProjectionAI
 
+Thanks for your interest in contributing! Please read the [Code of Conduct](CODE_OF_CONDUCT.md) and the [Security Policy](SECURITY.md) first.
+
 ## Development Setup
 
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/your-org/projectionai.git
+   git clone https://github.com/sashtriyasam/projectionai.git
    cd projectionai
    ```
 
 2. Create and activate the virtual environment:
 
    ```bash
-   uv sync
+   uv sync --group dev
    .venv\Scripts\activate  # Windows
    # source .venv/bin/activate  # macOS/Linux
    ```
@@ -23,7 +25,7 @@
    pre-commit install
    ```
 
-4. Configure your AI provider:
+4. Configure your AI provider (optional — the app runs without one):
    ```bash
    cp .env.example .env
    # Edit .env with your API keys
@@ -31,9 +33,9 @@
 
 ## Code Style
 
-- **Linting**: `ruff check src/`
-- **Formatting**: `ruff format src/` (automatically run by pre-commit)
-- **Type checking**: `mypy src/projectionai/`
+- **Linting**: `ruff check src/ tests/`
+- **Formatting**: `ruff format src/ tests/` (automatically run by pre-commit)
+- **Type checking**: `mypy src/projectionai/` (strict mode)
 - All checks must pass before committing.
 
 ## Testing

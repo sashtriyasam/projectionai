@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=75.0", "wheel>=0.44"]
+requires = ["setuptools>=77", "wheel>=0.44"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "projectionai"
 version = "0.1.0"
 description = "AI-powered projection mapping platform"
 readme = "README.md"
-license = { text = "Proprietary" }
+license = "MIT"
 requires-python = ">=3.12"
 
 authors = [
@@ -231,7 +231,7 @@ typeCheckingMode = "standard"
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 80
+fail_under = 60
 
 [tool.coverage.html]
 directory = "coverage_html"

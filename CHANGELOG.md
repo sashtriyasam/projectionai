@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Open-source governance: `LICENSE` (MIT), `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`
+- GitHub templates: issue templates (bug report, feature request, question), pull request template
+- CI pipeline in `.github/workflows/ci.yml` (lint, type-check, test with coverage, build & import check)
+- Release automation: release-drafter workflow + config
+- Real application screenshot in `screenshots/`, embedded in the README
+- Root `ROADMAP.md` with milestone-by-milestone tracking
+- Calibration subsystem documentation in `docs/Architecture.md`
+
+### Changed
+
+- Rewrote `README.md` with project overview, features, quick start, development guide, architecture diagram, and coding standards
+- Licensed metadata in `pyproject.toml` pinned to SPDX `MIT` (PEP 639)
+
+### Fixed
+
+- License metadata inconsistency: `pyproject.toml` declared Proprietary while `LICENSE`, README, and CHANGELOG stated MIT
+
 ## [0.1.0] - 2026-07-31
 
 ### Added

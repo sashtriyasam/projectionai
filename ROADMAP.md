@@ -1,4 +1,8 @@
-# Roadmap
+# ProjectionAI Roadmap
+
+> Status tracking for ProjectionAI development milestones. Release notes
+> are kept in [CHANGELOG.md](CHANGELOG.md); design decisions in
+> [docs/ADR/](docs/ADR/).
 
 ## Milestone 0 — Foundation (v0.1.0)
 
@@ -72,41 +76,53 @@
 - [ ] Off-screen rendering for warp computation
 - [ ] Warp engine: texture → target mesh projection
 - [ ] Interactive camera controls (orbit, pan, zoom)
-- [ ] Grid, axis helpers, selection overlays
+- [x] Grid, axis helpers, selection overlays
 
 ## Milestone 5 — Calibration (v0.6.0)
 
 **Goal:** Full calibration workflow — manual and automatic.
 
-- [ ] Manual calibration UI (click correspondence points)
-- [ ] Point picking in 3D viewport
-- [ ] Calibration computation (solve PnP, minimize reprojection)
-- [ ] Calibration quality metrics display
+- [x] Manual calibration UI (click correspondence points)
+- [x] Point picking in 3D viewport
+- [x] Calibration computation (solve PnP, minimize reprojection)
+- [x] Calibration quality metrics display
 - [ ] Automatic calibration (ICP registration)
 - [ ] Structured light / Gray-code projection for auto-calibration
 - [ ] Single-projector calibration complete
-- [ ] Calibration persistence (save/load to project)
+- [x] Calibration persistence (save/load to project)
 
 ## Milestone 6 — UI Application (v0.7.0)
 
 **Goal:** Complete desktop application with all workflows wired.
 
-- [ ] Main window layout (menu bar, toolbars, dock panels)
-- [ ] 3D viewport widget in center
-- [ ] Scene panel (object list, properties)
+- [x] Main window layout (menu bar, toolbars, dock panels)
+- [x] 3D viewport widget in center
+- [x] Scene panel (object list, properties)
 - [ ] Surface panel (detected surfaces, selection)
-- [ ] Content panel (generated content browser)
+- [x] Content panel (generated content browser)
 - [ ] Chat panel (AI chat interface)
-- [ ] Preview panel (projected output preview)
-- [ ] Workspace manager integration (persistent layouts)
+- [x] Preview panel (projected output preview)
+- [x] Workspace manager integration (persistent layouts)
 - [ ] Scan workflow (camera → surface detection → scene)
 - [ ] Generate workflow (prompt → AI → content)
 - [ ] Warp workflow (content → surface → warped)
-- [ ] Project save/load via ProjectManager
-- [ ] Undo/redo via CommandManager
+- [x] Project save/load via ProjectManager
+- [x] Undo/redo via CommandManager
 - [ ] Background job progress via JobManager
 
-## Milestone 7 — Polish & Performance (v0.8.0)
+## Milestone 7 — Display & Output (v0.8.0)
+
+**Goal:** Hardware display management and safe projection output.
+
+- [x] Display topology detection (multi-display / projector classification)
+- [x] Display change tracking and typed change events
+- [x] Display validation gates (renderer ready, projector present, resolution)
+- [x] Output sessions (preview → live) with safe switching
+- [x] Emergency blackout
+- [ ] Real display full-screen output window
+- [ ] Installer packaging (NSIS / WiX for Windows, DMG for macOS)
+
+## Milestone 8 — Polish & Performance (v0.9.0)
 
 **Goal:** Production-ready performance, error handling, UX.
 
@@ -119,10 +135,9 @@
 - [ ] Dark/light theme
 - [ ] Settings dialog (backed by SettingsManager)
 - [ ] Export to video / image sequence
-- [ ] Installer packaging (NSIS / WiX for Windows, DMG for macOS)
 - [ ] Auto-update mechanism
 
-## Milestone 8 — Multi-Projector & Collaboration (v0.9.0+)
+## Milestone 9 — Multi-Projector & Collaboration (v1.0+)
 
 **Goal:** Professional projection mapping features.
 
@@ -140,7 +155,7 @@
 ## v1.0.0 Release
 
 - [ ] All milestone features complete
-- [ ] Comprehensive test suite (>80% coverage)
+- [ ] Comprehensive test suite (80%+ coverage)
 - [ ] User documentation and tutorials
 - [ ] Website and marketing materials
 - [ ] Distribution channel (website, direct download)
