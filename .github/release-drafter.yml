@@ -1,0 +1,54 @@
+# Release Drafter configuration
+# https://github.com/release-drafter/release-drafter
+
+name-template: "v$RESOLVED_VERSION 🌈"
+tag-template: "v$RESOLVED_VERSION"
+change-template: "- $TITLE (#$NUMBER) @$AUTHOR"
+change-title-escapes: '\<*_&`#@'
+version-resolver:
+  major:
+    labels:
+      - "major"
+      - "breaking-change"
+  minor:
+    labels:
+      - "minor"
+      - "enhancement"
+      - "feature"
+  patch:
+    labels:
+      - "patch"
+      - "bug"
+      - "fix"
+      - "docs"
+      - "chore"
+  default: patch
+
+categories:
+  - title: "🚀 Features"
+    labels:
+      - "feat"
+      - "feature"
+      - "enhancement"
+  - title: "🐛 Bug Fixes"
+    labels:
+      - "fix"
+      - "bug"
+  - title: "🧰 Maintenance"
+    labels:
+      - "chore"
+      - "docs"
+      - "refactor"
+  - title: "🧪 Tests"
+    labels:
+      - "test"
+
+exclude-labels:
+  - "skip-changelog"
+
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/sashtriyasam/projectionai/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION

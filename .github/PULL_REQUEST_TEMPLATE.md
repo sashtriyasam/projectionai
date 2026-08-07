@@ -1,6 +1,9 @@
 ## Description
 
-Please include a summary of the change and which issue is fixed.
+Please include a summary of the change and which issue is fixed. Include relevant motivation and context.
+
+- **What** does this PR do?
+- **Why** is this change needed?
 
 Fixes # (issue)
 
@@ -15,14 +18,18 @@ Fixes # (issue)
 
 ## How Has This Been Tested?
 
+Please describe the tests that you ran to verify your changes.
+
 - [ ] `pytest` passes locally
 - [ ] `ruff check src/` passes
+- [ ] `ruff format --check src/` passes
 - [ ] `mypy src/projectionai/` passes
 - [ ] Manual testing performed (describe below)
 
 ## Checklist
 
-- [ ] My code follows the style guidelines of this project
+- [ ] My code follows the style guidelines of this project (see [CONTRIBUTING.md](../CONTRIBUTING.md))
+- [ ] My commit messages follow the Conventional Commits format
 - [ ] I have added tests that prove my fix is effective or that my feature works
 - [ ] New and existing unit tests pass locally
 - [ ] Any dependent changes have been merged and published

@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: ProjectionAI Discussions
+    url: https://github.com/sashtriyasam/projectionai/discussions
+    about: Please ask and answer questions here for open-ended discussion.
+  - name: ProjectionAI Documentation
+    url: https://github.com/sashtriyasam/projectionai/tree/main/docs
+    about: Architecture, ADRs, hardware/display validation, and UX architecture documentation.
