@@ -1,208 +1,512 @@
-"""Main application window — updated with editor viewport integration."""
+"""Main application window — the desktop shell.
+
+Owns the dock system, center viewport, status bar, and the Actions
+module. Layout follows UX-ARCHITECTURE §2.1/§2.2:
+
+- Left dock: collapsible section stack — Scenes, Assets, Devices
+  (Projectors + Cameras), Calibration, Jobs, History.
+- Center: :class:`MainViewport` — PREVIEW | LIVE companion panes.
+- Right dock: section stack — Inspector, Project Properties, Output
+  Settings.
+- Bottom: Timeline (full width) with Timeline Properties and the AI
+  Assistant stacked on the right.
+- Status bar bound to :class:`StatusViewModel`.
+
+Workspaces (§10): the seven presets (Projection, Calibration,
+AI Creation, Animation, Live Show, Multi Projector, Minimal) are
+seeded into the :class:`WorkspaceManager` on startup (only when a
+layout with the same name does not already exist) and applied through
+``WorkspaceLayoutChanged`` events. ``Ctrl+1..7`` switches workspaces.
+
+Design decisions:
+- Panels are created with their view models and registered in
+  ``self._docks`` / ``self._panels`` under the panel's stable
+  ``panel_id`` so workspace layouts can show/hide them.
+- Dock visibility changes are written back to the workspace manager
+  (source of truth); layout events are applied back to the docks with
+  a guard flag to avoid feedback loops.
+- The LIVE pane is treated as a pseudo-panel ("live") in layouts.
+"""
 
 from __future__ import annotations
 
 import logging
 from typing import Any, override
 
-import numpy as np
-from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QMainWindow, QWidget
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
+from PySide6.QtWidgets import (
+    QDockWidget,
+    QMainWindow,
+    QWidget,
+)
 
+from projectionai.core.events import Event, EventBus, WorkspaceLayoutChanged
 from projectionai.domain.project import Project
-from projectionai.editor.viewport_widget import ViewportWidget
+from projectionai.domain.workspace import PanelState, WorkspaceLayout
+from projectionai.editor.viewport_controller import ViewportController
+from projectionai.infrastructure.renderer.camera import OrbitCamera
+from projectionai.ui.actions.actions import Actions
+from projectionai.ui.panels import (
+    AiAssistantPanel,
+    AssetsPanel,
+    CalibrationSessionsPanel,
+    DevicesPanel,
+    DisplaysPanel,
+    HistoryPanel,
+    InspectorPanel,
+    JobsPanel,
+    OutputSettingsPanel,
+    ProjectPropertiesPanel,
+    ScenesPanel,
+    TimelinePropertiesPanel,
+    ViewModelPanel,
+)
+from projectionai.ui.viewmodels.ai import AiViewModel
+from projectionai.ui.viewmodels.assets import AssetsViewModel
+from projectionai.ui.viewmodels.calibration import CalibrationViewModel
+from projectionai.ui.viewmodels.devices import DevicesViewModel
+from projectionai.ui.viewmodels.displays import DisplaysViewModel
+from projectionai.ui.viewmodels.history import HistoryViewModel
+from projectionai.ui.viewmodels.jobs import JobsViewModel
+from projectionai.ui.viewmodels.output import OutputViewModel
+from projectionai.ui.viewmodels.output_settings import OutputSettingsViewModel
+from projectionai.ui.viewmodels.project import ProjectViewModel
+from projectionai.ui.viewmodels.scenes import ScenesViewModel
+from projectionai.ui.viewmodels.status import StatusViewModel
+from projectionai.ui.viewmodels.timeline_model import TimelineModel
+from projectionai.ui.views import MainViewport, StatusBar, TimelineWidget
 
 _logger = logging.getLogger(__name__)
 
+_PANEL_TITLES: dict[str, str] = {
+    "scenes": "Scenes",
+    "assets": "Assets",
+    "devices": "Devices",
+    "displays": "Displays",
+    "calibration": "Calibration",
+    "jobs": "Jobs",
+    "history": "History",
+    "inspector": "Inspector",
+    "project_properties": "Project Properties",
+    "output_settings": "Output Settings",
+    "timeline_properties": "Timeline Properties",
+    "ai_assistant": "AI Assistant",
+    "timeline": "Timeline",
+}
+
+# Workspace order = Ctrl+1..7 (UX §10).
+_PRESET_NAMES: tuple[str, ...] = (
+    "Projection",
+    "Calibration",
+    "AI Creation",
+    "Animation",
+    "Live Show",
+    "Multi Projector",
+    "Minimal",
+)
+
+
+def _preset_layout(
+    name: str, *, locked: bool = False, **panels: bool
+) -> WorkspaceLayout:
+    """Build a preset layout from a panel-id -> visibility mapping."""
+    return WorkspaceLayout(
+        name=name,
+        panels={
+            pid: PanelState(panel_id=pid, visible=visible)
+            for pid, visible in panels.items()
+        },
+        metadata={"locked": locked},
+    )
+
+
+# Appendix A — panel visibility matrix (default workspaces). "live" is the
+# pseudo-panel for the LIVE pane of the center viewport.
+_PRESETS: tuple[WorkspaceLayout, ...] = (
+    _preset_layout(
+        "Projection",
+        scenes=True,
+        assets=True,
+        devices=True,
+        displays=True,
+        calibration=True,
+        jobs=True,
+        history=True,
+        inspector=True,
+        project_properties=True,
+        output_settings=True,
+        timeline_properties=True,
+        ai_assistant=True,
+        timeline=True,
+        live=True,
+    ),
+    _preset_layout(
+        "Calibration",
+        scenes=True,
+        devices=True,
+        displays=True,
+        calibration=True,
+        history=True,
+        inspector=True,
+        live=True,
+    ),
+    _preset_layout(
+        "AI Creation",
+        scenes=True,
+        assets=True,
+        jobs=True,
+        history=True,
+        inspector=True,
+        ai_assistant=True,
+    ),
+    _preset_layout(
+        "Animation",
+        scenes=True,
+        assets=True,
+        history=True,
+        inspector=True,
+        timeline_properties=True,
+        timeline=True,
+    ),
+    _preset_layout(
+        "Live Show",
+        locked=True,
+        devices=True,
+        displays=True,
+        timeline=True,
+        live=True,
+    ),
+    _preset_layout(
+        "Multi Projector",
+        scenes=True,
+        devices=True,
+        displays=True,
+        inspector=True,
+        live=True,
+    ),
+    _preset_layout(
+        "Minimal",
+        live=True,
+    ),
+)
+
+
+class _PanelDock(QDockWidget):
+    """A dock widget that reports user-initiated close actions.
+
+    ``visibilityChanged`` fires for many non-user causes (window
+    minimize/restore, tab raises, dock moves), so it cannot drive
+    workspace write-back. User closes (the title-bar close button)
+    surface through ``closeEvent`` instead; re-opens through the dock's
+    ``toggleViewAction``.
+    """
+
+    closed = Signal()
+
+    @override
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self.closed.emit()
+        super().closeEvent(event)
+
 
 class MainWindow(QMainWindow):
-    """Top-level application window.
-
-    Owns the menu bar, toolbars, dock widgets, and the editor viewport
-    as its central widget.
-    """
+    """Top-level application window (desktop shell)."""
 
     def __init__(self, app: Any, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._app: Any = app
         self._project: Project | None = None
-        self._viewport: ViewportWidget | None = None
-        self._pending_undo_task = None
-        self._pending_redo_task = None
+
+        self._docks: dict[str, QDockWidget] = {}
+        self._panels: dict[str, ViewModelPanel] = {}
+        self._project_vm: ProjectViewModel | None = None
+        self._output_vm: OutputViewModel | None = None
+        self._viewport: MainViewport | None = None
+        self._status_bar: StatusBar | None = None
+        self._actions: Actions | None = None
+        self._applying_layout: bool = False
+        self._last_applied_layout: str = ""
 
         self._setup_ui()
-        self._create_menus()
+        self._connect_workspace_events()
+        self._seed_workspaces()
+        self._apply_layout()
+
+    # -- Construction -------------------------------------------------------
 
     def _setup_ui(self) -> None:
         self.setWindowTitle("ProjectionAI")
         self.resize(1600, 1000)
 
-        # Central editor viewport
-        self._viewport = ViewportWidget(
-            parent=self,
-            scene_manager=self._app.scenes if hasattr(self._app, "scenes") else None,
-            command_manager=self._app.commands
-            if hasattr(self._app, "commands")
-            else None,
-            core_event_bus=self._app.event_bus
-            if hasattr(self._app, "event_bus")
-            else None,
+        # -- View models (Qt-free, shared by panels) ------------------------
+        output_vm = OutputViewModel()
+        self._output_vm = output_vm
+        output_settings_vm = OutputSettingsViewModel(
+            self._app.project, output=output_vm
+        )
+        devices_vm = DevicesViewModel(self._app.cameras)
+        displays_vm = DisplaysViewModel(self._app.hardware)
+        timeline_model = TimelineModel(fps=30.0, duration_frames=3600)
+        scenes_vm = ScenesViewModel(self._app.scenes)
+        self._project_vm = ProjectViewModel(self._app.project)
+
+        # -- Center: PREVIEW | LIVE ----------------------------------------
+        self._viewport = MainViewport()
+        self._viewport.bind_viewmodels(
+            scenes=scenes_vm,
+            output=output_vm,
+            output_settings=output_settings_vm,
+            devices=devices_vm,
         )
         self.setCentralWidget(self._viewport)
-        self._viewport.start_rendering()
 
-    def _create_menus(self) -> None:
-        """Create the application menu bar."""
-        menubar = self.menuBar()
+        # -- Docks (keys = stable panel ids; see _build_docks) -------------
+        self._build_docks(
+            scenes=scenes_vm,
+            assets=AssetsViewModel(self._app.assets),
+            devices=devices_vm,
+            displays=displays_vm,
+            calibration=CalibrationViewModel(self._app.calibration),
+            jobs=JobsViewModel(self._app.jobs),
+            history=HistoryViewModel(self._app.commands),
+            inspector=scenes_vm,
+            project_properties=self._project_vm,
+            output_settings=output_settings_vm,
+            timeline=timeline_model,
+            timeline_properties=timeline_model,
+            ai_assistant=AiViewModel(),
+        )
 
-        # View menu
-        view_menu = menubar.addMenu("&View")
-        view_menu.addAction("Frame All", self._frame_all)
-        view_menu.addAction("Focus Selected", self._focus_selected)
-        view_menu.addSeparator()
+        # -- Status bar -----------------------------------------------------
+        self._status_bar = StatusBar()
+        status_vm = StatusViewModel(
+            self._app.project,
+            self._app.scenes,
+            self._app.jobs,
+            output_vm,
+            camera_count_provider=lambda: devices_vm.camera_count,
+            hardware_provider=lambda: displays_vm.snapshot,
+        )
+        self._status_bar.bind_viewmodel(status_vm)
+        self.setStatusBar(self._status_bar)
 
-        cam_menu = view_menu.addMenu("Camera")
-        cam_menu.addAction("Front", lambda: self._apply_camera("front"))
-        cam_menu.addAction("Back", lambda: self._apply_camera("back"))
-        cam_menu.addAction("Left", lambda: self._apply_camera("left"))
-        cam_menu.addAction("Right", lambda: self._apply_camera("right"))
-        cam_menu.addAction("Top", lambda: self._apply_camera("top"))
-        cam_menu.addAction("Bottom", lambda: self._apply_camera("bottom"))
+        # -- Editor controller (no OpenGL; drives Actions) -----------------
+        controller = ViewportController(
+            orbit_camera=OrbitCamera(),
+            core_event_bus=self._app.event_bus,
+            scene_manager=self._app.scenes,
+            command_manager=self._app.commands,
+        )
 
-        view_menu.addSeparator()
-        view_menu.addAction("Toggle Projection", self._toggle_projection)
-        view_menu.addAction("Toggle Grid", self._toggle_grid)
-        view_menu.addAction("Toggle Axes", self._toggle_axes)
+        # -- Actions: menu bar + toolbar (incl. scene combo) ---------------
+        self._actions = Actions(
+            self,
+            workspace=self._app.workspace,
+            commands=self._app.commands,
+            projects=self._app.project,
+            scenes=self._app.scenes,
+            output_vm=output_vm,
+            controller=controller,
+            status_bar=self._status_bar,
+            on_quit=self._quit,
+        )
+        self.setMenuBar(self._actions.build_menu_bar())
+        self.addToolBar(self._actions.build_toolbar())
 
-        # Edit menu
-        edit_menu = menubar.addMenu("&Edit")
-        edit_menu.addAction("Undo", self._undo)
-        edit_menu.addAction("Redo", self._redo)
-        edit_menu.addSeparator()
-        edit_menu.addAction("Delete Selected", self._delete_selected)
+        # -- Poll timer: keep panels fresh (panels/__init__ contract) -------
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(500)
+        self._poll_timer.timeout.connect(self._poll)
+        self._poll_timer.start()
 
-        # Transform menu
-        xform_menu = menubar.addMenu("&Transform")
-        xform_menu.addAction("Translate (W)", lambda: self._set_tool("translate"))
-        xform_menu.addAction("Rotate (E)", lambda: self._set_tool("rotate"))
-        xform_menu.addAction("Scale (R)", lambda: self._set_tool("scale"))
-        xform_menu.addSeparator()
-        xform_menu.addAction("Toggle Space", self._toggle_space)
-        xform_menu.addAction("Toggle Snap", self._toggle_snap)
+    def _build_docks(self, **vms: Any) -> None:
+        """Create all dock panels, bind view models, and arrange docks."""
+        # Left section stack: Scenes, Assets, Devices, Displays, Calibration,
+        # Jobs, History.
+        left: list[tuple[type[ViewModelPanel], str]] = [
+            (ScenesPanel, "scenes"),
+            (AssetsPanel, "assets"),
+            (DevicesPanel, "devices"),
+            (DisplaysPanel, "displays"),
+            (CalibrationSessionsPanel, "calibration"),
+            (JobsPanel, "jobs"),
+            (HistoryPanel, "history"),
+        ]
+        # Right section stack: Inspector, Project Properties, Output Settings.
+        right: list[tuple[type[ViewModelPanel], str]] = [
+            (InspectorPanel, "inspector"),
+            (ProjectPropertiesPanel, "project_properties"),
+            (OutputSettingsPanel, "output_settings"),
+        ]
 
-    # -- Menu actions -------------------------------------------------------
+        areas = (
+            Qt.DockWidgetArea.LeftDockWidgetArea,
+            Qt.DockWidgetArea.RightDockWidgetArea,
+            Qt.DockWidgetArea.BottomDockWidgetArea,
+        )
 
-    def _frame_all(self) -> None:
-        if self._viewport and self._viewport.controller:
-            ctrl = self._viewport.controller
-            scene = getattr(ctrl, "_scene", None)
-            active = getattr(scene, "active_scene", None)
-            positions = (
-                [node.transform.position for node in active.nodes.values()]
-                if active
-                else []
-            )
-            if positions:
-                arr = np.array(positions, dtype=np.float64)
-                center = tuple(arr.mean(axis=0).tolist())
-                radius = float(np.max(np.linalg.norm(arr - arr.mean(axis=0), axis=1)))
-            else:
-                center, radius = (0.0, 0.0, 0.0), 10.0
-            ctrl.camera.focus_on_bounds(center, radius)
+        left_docks: list[QDockWidget] = []
+        for cls, vm_key in left:
+            dock = self._add_panel(cls(), vms[vm_key], areas[0])
+            left_docks.append(dock)
+        for dock in left_docks[1:]:
+            self.tabifyDockWidget(left_docks[0], dock)
+        left_docks[0].raise_()
 
-    def _focus_selected(self) -> None:
-        if self._viewport and self._viewport.controller:
-            ctrl = self._viewport.controller
-            sel = ctrl.selection
-            if not sel.is_empty:
-                scene = getattr(ctrl, "_scene", None)
-                active = getattr(scene, "active_scene", None)
-                positions = (
-                    [
-                        active.nodes[oid].transform.position
-                        for oid in sel.selected
-                        if oid in active.nodes
-                    ]
-                    if active
-                    else []
+        right_docks: list[QDockWidget] = []
+        for cls, vm_key in right:
+            dock = self._add_panel(cls(), vms[vm_key], areas[1])
+            right_docks.append(dock)
+        for dock in right_docks[1:]:
+            self.tabifyDockWidget(right_docks[0], dock)
+        right_docks[0].raise_()
+
+        # Bottom: Timeline (full width) + Timeline Properties + AI Assistant
+        # stacked to the right (UX §11).
+        timeline_dock = self._add_panel(TimelineWidget(), vms["timeline"], areas[2])
+        bottom_right: list[QDockWidget] = [
+            self._add_panel(
+                TimelinePropertiesPanel(), vms["timeline_properties"], areas[2]
+            ),
+            self._add_panel(AiAssistantPanel(), vms["ai_assistant"], areas[2]),
+        ]
+        self.tabifyDockWidget(bottom_right[0], bottom_right[1])
+        self.splitDockWidget(timeline_dock, bottom_right[0], Qt.Orientation.Horizontal)
+        timeline_dock.resize(900, 200)
+
+    def _add_panel(
+        self, panel: ViewModelPanel, vm: Any, area: Qt.DockWidgetArea
+    ) -> QDockWidget:
+        """Wrap a panel in a dock under its stable panel_id."""
+        panel_id = panel.panel_id
+        dock = _PanelDock(_PANEL_TITLES.get(panel_id, panel_id.title()), self)
+        dock.setObjectName(panel_id)
+        dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea
+            | Qt.DockWidgetArea.RightDockWidgetArea
+            | Qt.DockWidgetArea.BottomDockWidgetArea
+            | Qt.DockWidgetArea.TopDockWidgetArea
+        )
+        dock.setWidget(panel)
+        self.addDockWidget(area, dock)
+        self._docks[panel_id] = dock
+        self._panels[panel_id] = panel
+
+        # Inspector needs both the scene VM and the project VM.
+        if isinstance(panel, InspectorPanel):
+            panel.bind_viewmodel(vm)
+            if self._project_vm is not None:
+                panel.bind_project_viewmodel(self._project_vm)
+        else:
+            panel.bind_viewmodel(vm)
+
+        # User close (title-bar X / view menu) writes the resulting panel
+        # state back to the workspace; visibilityChanged is not used because
+        # it also fires for window minimization, tab raises, and dock moves.
+        dock.closed.connect(lambda pid=panel_id: self._on_dock_visibility(pid, False))
+        dock.toggleViewAction().triggered.connect(
+            lambda checked, pid=panel_id: self._on_dock_visibility(pid, checked)
+        )
+        return dock
+
+    # -- Workspaces ---------------------------------------------------------
+
+    def _seed_workspaces(self) -> None:
+        """Register the seven preset layouts, only if not already present."""
+        ws = self._app.workspace
+        for preset in _PRESETS:
+            if preset.name not in ws.layout_names:
+                ws.add_layout(preset)
+
+        last = ws.settings.last_active_layout
+        if ws.settings.restore_last_layout and last in ws.layout_names:
+            self._activate_workspace(last)
+        else:
+            self._activate_workspace("Projection")
+
+        # Ctrl+1..7 switches workspaces (UX §10).
+        for index, name in enumerate(_PRESET_NAMES, start=1):
+            shortcut = QShortcut(QKeySequence(f"Ctrl+{index}"), self)
+            shortcut.activated.connect(lambda n=name: self._activate_workspace(n))
+
+    def _connect_workspace_events(self) -> None:
+        bus: EventBus = self._app.event_bus
+        bus.subscribe(WorkspaceLayoutChanged, self._on_workspace_changed)
+
+    async def _on_workspace_changed(self, event: Event) -> None:
+        """Apply the active layout to the docks (visibility + geometry)."""
+        self._apply_layout()
+
+    def _activate_workspace(self, name: str) -> None:
+        ws = self._app.workspace
+        if name in ws.layout_names:
+            ws.activate_layout(name)
+
+    def _apply_layout(self) -> None:
+        ws = self._app.workspace
+        layout = ws.active_layout
+        if layout is None:
+            return
+
+        self._applying_layout = True
+        try:
+            # Panels absent from the layout are hidden (Appendix A matrix).
+            for panel_id, dock in self._docks.items():
+                state = layout.panels.get(panel_id)
+                dock.setVisible(state is not None and state.visible)
+            live_state = layout.panels.get("live")
+            if self._viewport is not None:
+                self._viewport.set_live_visible(
+                    live_state is not None and live_state.visible
                 )
-                if positions:
-                    arr = np.array(positions, dtype=np.float64)
-                    center = tuple(arr.mean(axis=0).tolist())
-                    radius = float(
-                        np.max(np.linalg.norm(arr - arr.mean(axis=0), axis=1))
-                    )
-                else:
-                    center, radius = (0.0, 0.0, 0.0), 10.0
-                ctrl.camera.focus_on_bounds(center, radius)
+        finally:
+            self._applying_layout = False
 
-    def _toggle_projection(self) -> None:
-        if self._viewport and self._viewport.controller:
-            self._viewport.controller.camera.toggle_projection()
-
-    def _toggle_grid(self) -> None:
-        if self._viewport and self._viewport.controller:
-            ctrl = self._viewport.controller
-            ctrl.overlays.grid.enabled = not ctrl.overlays.grid.enabled
-
-    def _toggle_axes(self) -> None:
-        if self._viewport and self._viewport.controller:
-            ctrl = self._viewport.controller
-            ctrl.overlays.axes.enabled = not ctrl.overlays.axes.enabled
-
-    def _undo(self) -> None:
-        if hasattr(self._app, "commands") and self._app.commands:
-            import asyncio
-
-            self._pending_undo_task = asyncio.ensure_future(self._app.commands.undo())
-
-    def _redo(self) -> None:
-        if hasattr(self._app, "commands") and self._app.commands:
-            import asyncio
-
-            self._pending_redo_task = asyncio.ensure_future(self._app.commands.redo())
-
-    def _delete_selected(self) -> None:
-        if self._viewport and self._viewport.controller:
-            self._viewport.controller._delete_selected()
-
-    def _set_tool(self, tool: str) -> None:
-        if self._viewport and self._viewport.controller:
-            from projectionai.editor.types import TransformMode
-
-            mapping = {
-                "translate": TransformMode.TRANSLATE,
-                "rotate": TransformMode.ROTATE,
-                "scale": TransformMode.SCALE,
-            }
-            mode = mapping.get(tool, TransformMode.NONE)
-            ctrl = self._viewport.controller
-            ctrl.transform_mode = (
-                TransformMode.NONE if ctrl.transform_mode == mode else mode
+        # Layout lock (R6): Live Show pins all docks.
+        locked = bool(layout.metadata.get("locked", False))
+        if locked:
+            features = QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
+        else:
+            features = (
+                QDockWidget.DockWidgetFeature.DockWidgetClosable
+                | QDockWidget.DockWidgetFeature.DockWidgetMovable
+                | QDockWidget.DockWidgetFeature.DockWidgetFloatable
             )
+        for dock in self._docks.values():
+            dock.setFeatures(features)
 
-    def _toggle_space(self) -> None:
-        if self._viewport and self._viewport.controller:
-            self._viewport.controller.coordinates.toggle()
+        # Apply window geometry only when the layout actually changes.
+        name = ws.active_layout_name
+        if name != self._last_applied_layout:
+            self._last_applied_layout = name
+            if layout.window_maximized:
+                self.showMaximized()
+            else:
+                self.move(layout.window_x, layout.window_y)
+                self.resize(layout.window_width, layout.window_height)
 
-    def _toggle_snap(self) -> None:
-        if self._viewport and self._viewport.controller:
-            self._viewport.controller.snap.toggle()
+    def _on_dock_visibility(self, panel_id: str, visible: bool) -> None:
+        """Write user close/open actions back to the workspace manager.
 
-    def _apply_camera(self, preset: str) -> None:
-        if self._viewport and self._viewport.controller:
-            from projectionai.editor.types import CameraPreset
+        Only called from user actions (dock close button via
+        ``_PanelDock.closeEvent`` and the view-menu toggle action); the
+        ``_applying_layout`` guard additionally protects the layout-apply
+        path from feedback loops.
+        """
+        if self._applying_layout:
+            return
+        ws = self._app.workspace
+        if ws.active_layout is not None:
+            ws.set_panel_visible(panel_id, visible)
 
-            mapping = {
-                "front": CameraPreset.FRONT,
-                "back": CameraPreset.BACK,
-                "left": CameraPreset.LEFT,
-                "right": CameraPreset.RIGHT,
-                "top": CameraPreset.TOP,
-                "bottom": CameraPreset.BOTTOM,
-            }
-            if preset in mapping:
-                self._viewport.controller.camera.apply_preset(mapping[preset])
+    # -- Polling ------------------------------------------------------------
+
+    def _poll(self) -> None:
+        for panel in self._panels.values():
+            panel.refresh()
+        if self._viewport is not None:
+            self._viewport.refresh()
 
     # -- Project loading ----------------------------------------------------
 
@@ -212,9 +516,34 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"ProjectionAI — {project.name}")
         _logger.info("Loaded project: %s", project.name)
 
+    # -- Lifecycle ----------------------------------------------------------
+
+    def _quit(self) -> None:
+        """Quit the application (Actions ``File > Quit`` handler)."""
+        self.close()
+
     @override
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self._viewport:
-            self._viewport.stop_rendering()
+        self._poll_timer.stop()
+        self._app.event_bus.unsubscribe(
+            WorkspaceLayoutChanged, self._on_workspace_changed
+        )
+        ws = self._app.workspace
+        if ws is not None:
+            ws.update_window_geometry(
+                self.x(), self.y(), self.width(), self.height(), self.isMaximized()
+            )
+            if ws.settings.auto_save_layout:
+                ws.save()
+        for panel in self._panels.values():
+            panel.shutdown()
+        if self._viewport is not None:
+            self._viewport.shutdown()
+        if self._status_bar is not None:
+            self._status_bar.shutdown()
+        if self._actions is not None:
+            self._actions.shutdown()
+        if self._output_vm is not None:
+            self._output_vm.close()
         _logger.debug("Main window closing")
         super().closeEvent(event)
