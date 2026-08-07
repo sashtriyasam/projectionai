@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --extra dev
       - name: Ruff check
         run: uv run ruff check src/
       - name: Ruff format check
@@ -41,7 +41,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --extra dev
       - name: MyPy
         run: uv run mypy src/projectionai/
 
@@ -59,9 +59,9 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1-mesa libgl1-mesa-glx libxkbcommon-x11-0
+          sudo apt-get install -y libegl1 libgl1 libglx-mesa0 libxkbcommon-x11-0
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --extra dev
       - name: Run tests
         run: uv run pytest --no-header -q --cov=src/projectionai --cov-report=xml --cov-report=term-missing
       - name: Upload coverage
@@ -82,8 +82,9 @@ jobs:
         run: uv build
       - name: Verify wheel imports
         run: |
-          uv pip install --system "dist/*.whl" pytest
-          uv run python -c "import projectionai; print(projectionai.__version__)"
+          uv venv .venv-check
+          uv pip install --python .venv-check/bin/python "dist/*.whl" pytest
+          .venv-check/bin/python -c "import projectionai; print(projectionai.__version__)"
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -72,7 +72,7 @@ offline. Providers are only needed for AI content generation.
 
 ```bash
 # Install with dev dependencies
-uv sync --group dev
+uv sync --extra dev
 
 # Run the full test suite (880+ tests)
 pytest

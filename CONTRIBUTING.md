@@ -14,7 +14,7 @@ Thanks for your interest in contributing! Please read the [Code of Conduct](CODE
 2. Create and activate the virtual environment:
 
    ```bash
-   uv sync --group dev
+   uv sync --extra dev
    .venv\Scripts\activate  # Windows
    # source .venv/bin/activate  # macOS/Linux
    ```
