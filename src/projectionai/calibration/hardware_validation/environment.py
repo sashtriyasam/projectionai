@@ -15,6 +15,7 @@ import platform
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import cv2
 
@@ -118,8 +119,10 @@ def _windows_memory_bytes() -> int:
     to get bytes. Returns 0 when the call fails or the DLL is unavailable.
     """
     try:
-        kernel32 = ctypes.WinDLL("kernel32")
-    except OSError:
+        # ``ctypes.WinDLL`` exists only on Windows; go through ``Any`` so the
+        # module type-checks and imports on every platform.
+        kernel32 = cast(Any, ctypes).WinDLL("kernel32")
+    except (OSError, AttributeError):
         return 0
 
     total_kb = ctypes.c_ulonglong(0)

@@ -63,6 +63,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: uv run pytest --no-header -q --cov=src/projectionai --cov-report=xml --cov-report=term-missing
       - name: Upload coverage
         uses: codecov/codecov-action@v5
@@ -83,7 +85,7 @@ jobs:
       - name: Verify wheel imports
         run: |
           uv venv .venv-check
-          uv pip install --python .venv-check/bin/python "dist/*.whl" pytest
+          uv pip install --python .venv-check/bin/python dist/*.whl pytest
           .venv-check/bin/python -c "import projectionai; print(projectionai.__version__)"
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

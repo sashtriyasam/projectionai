@@ -61,6 +61,7 @@ dependencies = [
     "glfw>=2.7",
 
     # Data & Serialization
+    "aiosqlite>=0.19",
     "orjson>=3.9",
     "PyYAML>=6.0",
 
