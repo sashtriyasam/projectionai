@@ -238,6 +238,68 @@ class TestCommandManagerMerge:
         assert manager.undo_depth == 2  # not merged (different type)
 
 
+class TestCommandManagerStackNotifications:
+    """Subscribers are notified on every undo/redo stack change."""
+
+    async def test_merge_notifies_stack_change(
+        self, manager: CommandManager, state: dict[str, Any]
+    ) -> None:
+        notified: list[int] = []
+        manager.subscribe(lambda: notified.append(1))
+
+        await manager.execute(_MergeableCommand(state, "x", 10))
+        await manager.execute(_MergeableCommand(state, "x", 20))  # merges
+
+        assert len(notified) == 2  # push and merge both change the stack
+
+    async def test_transaction_end_notifies_stack_change(
+        self, manager: CommandManager, state: dict[str, Any]
+    ) -> None:
+        notified: list[int] = []
+        manager.subscribe(lambda: notified.append(1))
+
+        manager.begin_transaction("Group")
+        await manager.execute(_SetValueCommand(state, "x", 0, 1))
+        await manager.execute(_SetValueCommand(state, "y", 0, 2))
+        assert len(notified) == 0  # buffered: nothing on the stack yet
+
+        manager.end_transaction()  # commits the group
+
+        assert len(notified) == 1
+
+    async def test_empty_transaction_end_does_not_notify(
+        self, manager: CommandManager
+    ) -> None:
+        notified: list[int] = []
+        manager.subscribe(lambda: notified.append(1))
+
+        manager.begin_transaction("Empty")
+        manager.end_transaction()
+
+        assert len(notified) == 0  # nothing committed
+
+    async def test_transaction_at_max_depth_notifies_stack_change(
+        self, event_bus, state: dict[str, Any]
+    ) -> None:
+        m = CommandManager(event_bus, max_depth=1)
+        await m.initialize()
+
+        notified: list[int] = []
+        m.subscribe(lambda: notified.append(1))
+
+        await m.execute(_SetValueCommand(state, "x", 0, 1))  # stack full
+        m.begin_transaction("Group")
+        await m.execute(_SetValueCommand(state, "y", 0, 2))
+        assert len(notified) == 1  # buffered: no stack change yet
+
+        m.end_transaction()  # commits the group; the oldest entry is evicted
+
+        # undo_depth stays at 1, but the stack content changed (and redo was
+        # cleared), so subscribers must still be notified.
+        assert len(notified) == 2
+        assert m.undo_depth == 1
+
+
 class TestCommandManagerTransactions:
     """Transaction (grouped commands) support."""
 

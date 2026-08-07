@@ -8,6 +8,7 @@ directory), but the API abstracts over that — consumers work with the
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -42,11 +43,39 @@ class ProjectMetadata:
     custom: dict[str, object] = field(default_factory=dict)
 
 
+#: Per-field assignment rules for :class:`ProjectSettings`: the accepted
+#: types and an inclusive minimum (``None`` = unbounded below).
+_SETTING_RULES: dict[str, tuple[tuple[type, ...], float | None]] = {
+    "resolution_width": ((int,), 1),
+    "resolution_height": ((int,), 1),
+    "framerate": ((int, float), 0.1),
+    "color_space": ((str,), None),
+    "default_ai_provider": ((str,), None),
+    "default_generation_prompt": ((str,), None),
+    "grid_enabled": ((bool,), None),
+    "snap_to_grid": ((bool,), None),
+    "grid_size": ((int, float), 0.01),
+}
+
+
+def _validate_setting(name: str, value: object) -> None:
+    """Raise ``TypeError``/``ValueError`` when ``value`` is invalid for ``name``."""
+    types, minimum = _SETTING_RULES[name]
+    if (isinstance(value, bool) and bool not in types) or not isinstance(value, types):
+        raise TypeError(f"{name} must be one of {types!r}, got {type(value).__name__}")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {value}")
+    if minimum is not None and isinstance(value, (int, float)) and value < minimum:
+        raise ValueError(f"{name} must be >= {minimum}, got {value}")
+
+
 @dataclass
 class ProjectSettings:
     """Per-project settings overrides.
 
     These override global settings for the duration of the project.
+    Field assignment is validated: wrong types raise ``TypeError`` and
+    out-of-range values raise ``ValueError``.
     """
 
     resolution_width: int = 1920
@@ -65,6 +94,12 @@ class ProjectSettings:
 
     # Custom overrides
     overrides: dict[str, object] = field(default_factory=dict)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        """Assign a field, rejecting invalid types and out-of-range values."""
+        if name in _SETTING_RULES:
+            _validate_setting(name, value)
+        super().__setattr__(name, value)
 
 
 # ---------------------------------------------------------------------------

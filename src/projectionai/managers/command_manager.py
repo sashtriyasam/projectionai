@@ -7,6 +7,7 @@ Supports command execution, undo, redo, grouping, and transactions.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import override
 
 from projectionai.core.events import (
@@ -32,6 +33,7 @@ class CommandManager(Manager):
     def __init__(self, event_bus: EventBus, max_depth: int = 256) -> None:
         super().__init__(event_bus)
         self._history: CommandHistory = CommandHistory(max_depth=max_depth)
+        self._stack_change_handlers: list[Callable[[], None]] = []
 
     # -- Properties ---------------------------------------------------------
 
@@ -85,7 +87,8 @@ class CommandManager(Manager):
     def end_transaction(self) -> None:
         """Finalize the current transaction."""
         self._require_initialized()
-        self._history.end_transaction()
+        if self._history.end_transaction():
+            self._notify_stack_change()
 
     async def cancel_transaction(self) -> None:
         """Cancel the current transaction, undoing any executed commands."""
@@ -120,6 +123,11 @@ class CommandManager(Manager):
                     command_name=command.name,
                 )
             )
+        # Merged commands replace the top undo entry and clear redo — still a
+        # stack change. Only buffered transaction commands defer notification
+        # until end_transaction() commits the group.
+        if pushed or not self._history.in_transaction:
+            self._notify_stack_change()
 
     async def undo(self) -> None:
         """Undo the most recent command.
@@ -138,6 +146,7 @@ class CommandManager(Manager):
                     command_name=command.name,
                 )
             )
+            self._notify_stack_change()
 
     async def redo(self) -> None:
         """Redo the most recently undone command.
@@ -156,12 +165,33 @@ class CommandManager(Manager):
                     command_name=command.name,
                 )
             )
+            self._notify_stack_change()
 
     def clear(self) -> None:
         """Clear the entire command history."""
         self._require_initialized()
         self._history.clear()
         self._emit_nowait(CommandHistoryCleared())
+        self._notify_stack_change()
+
+    def subscribe(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """Subscribe to undo/redo stack changes.
+
+        Returns an unsubscribe function that must be called to detach.
+        """
+        if callback not in self._stack_change_handlers:
+            self._stack_change_handlers.append(callback)
+
+        def _unsubscribe() -> None:
+            if callback in self._stack_change_handlers:
+                self._stack_change_handlers.remove(callback)
+
+        return _unsubscribe
+
+    def _notify_stack_change(self) -> None:
+        """Notify all subscribers that the undo/redo stack has changed."""
+        for handler in self._stack_change_handlers:
+            handler()
 
     # -- Lifecycle ----------------------------------------------------------
 

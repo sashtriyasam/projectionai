@@ -134,6 +134,11 @@ class JobManager(Manager):
         with self._lock:
             return [j for j in self._jobs.values() if j.status == status]
 
+    def list_jobs(self) -> list[JobInfo]:
+        """Return a snapshot of all tracked jobs."""
+        with self._lock:
+            return list(self._jobs.values())
+
     # -- Queue management ---------------------------------------------------
 
     def enqueue(

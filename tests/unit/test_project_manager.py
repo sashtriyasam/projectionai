@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -16,6 +17,7 @@ from projectionai.core.events import (
 )
 from projectionai.domain.project import ProjectMetadata, ProjectSettings
 from projectionai.managers.project_manager import ProjectManager
+from projectionai.ui.viewmodels.project import ProjectViewModel
 
 
 @pytest.fixture
@@ -203,3 +205,94 @@ class TestProjectManagerEdgeCases:
         manager.create_project("Second", tmp_path / "second", force=True)
         # First project should be marked as closed (dirty)
         assert p1.is_dirty
+
+
+class TestProjectSettingsValidation:
+    """ProjectSettings rejects invalid types and out-of-range values."""
+
+    def test_constructor_rejects_out_of_range(self) -> None:
+        with pytest.raises(ValueError):
+            ProjectSettings(resolution_width=0)
+        with pytest.raises(ValueError):
+            ProjectSettings(framerate=0.0)
+        with pytest.raises(ValueError):
+            ProjectSettings(grid_size=0.0)
+
+    def test_assignment_rejects_invalid_types(self) -> None:
+        settings = ProjectSettings()
+        bad_values: dict[str, Any] = {
+            "resolution_width": 2.5,
+            "framerate": "fast",
+            "grid_enabled": 1,
+        }
+        for key, value in bad_values.items():
+            with pytest.raises(TypeError):
+                setattr(settings, key, value)
+
+    def test_assignment_rejects_out_of_range(self) -> None:
+        settings = ProjectSettings()
+        with pytest.raises(ValueError):
+            settings.resolution_height = 0
+        with pytest.raises(ValueError):
+            settings.grid_size = 0.0
+
+    def test_constructor_rejects_non_finite(self) -> None:
+        with pytest.raises(ValueError):
+            ProjectSettings(framerate=float("nan"))
+        with pytest.raises(ValueError):
+            ProjectSettings(framerate=float("inf"))
+        with pytest.raises(ValueError):
+            ProjectSettings(grid_size=float("-inf"))
+
+    def test_assignment_rejects_non_finite(self) -> None:
+        settings = ProjectSettings()
+        with pytest.raises(ValueError):
+            settings.framerate = float("nan")
+        with pytest.raises(ValueError):
+            settings.grid_size = float("inf")
+
+    def test_boundary_and_valid_assignments_pass(self) -> None:
+        settings = ProjectSettings()
+        settings.resolution_width = 1
+        settings.framerate = 0.1
+        settings.grid_size = 0.01
+        settings.framerate = 60.0
+        assert settings.framerate == 60.0
+
+
+class TestProjectViewModelUpdateSetting:
+    """update_setting rejects invalid values without dirtying or notifying."""
+
+    async def test_update_setting_rejects_invalid_value(
+        self, manager: ProjectManager, tmp_path: Path
+    ) -> None:
+        project = manager.create_project("TestProject", tmp_path)
+        dirty_before = project.is_dirty
+        vm = ProjectViewModel(manager)
+        calls: list[int] = []
+
+        def _handler() -> None:
+            calls.append(1)
+
+        vm.subscribe(_handler)
+        assert vm.update_setting("framerate", "fast") is False
+        assert vm.update_setting("resolution_width", 0) is False
+        assert project.is_dirty == dirty_before
+        assert calls == []
+        assert vm.settings()["framerate"] == 30.0
+
+    async def test_update_setting_accepts_valid_value(
+        self, manager: ProjectManager, tmp_path: Path
+    ) -> None:
+        project = manager.create_project("TestProject", tmp_path)
+        vm = ProjectViewModel(manager)
+        assert vm.update_setting("framerate", 60.0) is True
+        assert project.settings.framerate == 60.0
+        assert project.is_dirty
+
+    async def test_update_setting_rejects_unknown_key(
+        self, manager: ProjectManager, tmp_path: Path
+    ) -> None:
+        manager.create_project("TestProject", tmp_path)
+        vm = ProjectViewModel(manager)
+        assert vm.update_setting("no_such_key", 1) is False

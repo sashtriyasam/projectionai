@@ -107,6 +107,19 @@ class TestJobManagerQueue:
         pending = manager.get_jobs_by_status(JobStatus.PENDING)
         assert len(pending) == 2
 
+    async def test_list_jobs_returns_snapshot(self, manager: JobManager) -> None:
+        # Fill executor slots so jobs stay in _pending
+        for i in range(manager._max_concurrent):
+            manager.enqueue(f"filler{i}", f"Filler{i}", _slow_fn, args=(0.2,))
+        manager.enqueue("j1", "Alpha", _simple_fn)
+        manager.enqueue("j2", "Beta", _simple_fn)
+
+        snapshot = manager.list_jobs()
+        assert {j.job_id for j in snapshot} == {"filler0", "filler1", "j1", "j2"}
+        # The snapshot is a fresh list: mutating it does not touch the manager
+        snapshot.pop()
+        assert manager.job_count == 4
+
 
 class TestJobManagerCompletion:
     """Job completion, failure, and events."""

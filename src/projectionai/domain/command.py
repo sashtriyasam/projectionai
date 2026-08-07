@@ -235,6 +235,16 @@ class CommandHistory:
     def redo_depth(self) -> int:
         return len(self._redo_stack)
 
+    @property
+    def undo_stack(self) -> tuple[Command, ...]:
+        """Undo stack snapshot, oldest command first."""
+        return tuple(self._undo_stack)
+
+    @property
+    def redo_stack(self) -> tuple[Command, ...]:
+        """Redo stack snapshot, oldest command first."""
+        return tuple(reversed(self._redo_stack))
+
     def get_state(self) -> CommandHistoryState:
         """Return a snapshot of the current history state (for UI binding)."""
         return CommandHistoryState(
@@ -266,14 +276,23 @@ class CommandHistory:
             raise CommandError("Already in a transaction")
         self._active_group = CommandGroup(name=name)
 
-    def end_transaction(self) -> None:
-        """Finalize the current transaction and push it onto the stack."""
+    def end_transaction(self) -> bool:
+        """Finalize the current transaction and push it onto the stack.
+
+        Returns:
+            ``True`` if the history changed: a non-empty group was pushed
+            (which also evicts overflow entries and clears the redo stack
+            when ``max_depth`` is reached). ``False`` for an empty
+            transaction, where nothing is pushed.
+        """
         if self._active_group is None:
             raise CommandError("Not in a transaction")
         group = self._active_group
         self._active_group = None
-        if not group.is_empty:
-            self._push(group)
+        if group.is_empty:
+            return False
+        self._push(group)
+        return True
 
     async def cancel_transaction(self) -> list[Command]:
         """Cancel the current transaction without pushing anything.
