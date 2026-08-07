@@ -7,7 +7,7 @@ Scan any object — a painting, sculpture, building facade, or stage — and Pro
 The long-term vision: become the "ChatGPT for Projection Mapping."
 
 [![CI](https://github.com/sashtriyasam/projectionai/actions/workflows/ci.yml/badge.svg)](https://github.com/sashtriyasam/projectionai/actions/workflows/ci.yml)
-[![Coverage](https://codecov.io/github/sashtriyasam/projectionai/branch/main/graph/badge.svg)](https://codecov.io/github/sashtriyasam/projectionai)
+[![Coverage](https://codecov.io/github/sashtriyasam/projectionai/branch/init%2Freadme/graph/badge.svg)](https://codecov.io/github/sashtriyasam/projectionai)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-000000)](https://docs.astral.sh/ruff/)
 [![Checked with mypy](https://img.shields.io/badge/mypy-strict-blue)](https://mypy-lang.org/)
