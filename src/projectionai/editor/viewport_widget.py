@@ -238,6 +238,12 @@ class ViewportWidget(QOpenGLWidget):
 
         Called once per frame; skips the push while the overlay data has
         not changed (tracked via :attr:`CalibrationOverlay.revision`).
+
+        Corner vertices are consumed in camera pixel space; the overlay
+        shader divides by ``u_viewport_size`` (the render target size in
+        logical widget pixels), so vertices are rescaled from the camera
+        frame size (:attr:`CalibrationOverlay.image_size`) to the widget's
+        current size before uploading.
         """
         if self._controller is None or self._overlay_pass is None:
             return
@@ -245,9 +251,23 @@ class ViewportWidget(QOpenGLWidget):
         if overlay.revision == self._last_calibration_revision:
             return
         self._last_calibration_revision = overlay.revision
-        self._overlay_pass.set_corner_lines(
-            overlay.vertices if overlay.enabled else None
-        )
+        vertices: np.ndarray | None = None
+        if overlay.enabled:
+            vertices = overlay.vertices
+            if vertices.shape[0] > 0:
+                image_w, image_h = overlay.image_size
+                if image_w > 0 and image_h > 0:
+                    scale = np.array(
+                        [
+                            max(self.width(), 1) / image_w,
+                            max(self.height(), 1) / image_h,
+                        ],
+                        dtype=np.float32,
+                    )
+                    vertices = vertices * scale
+                else:
+                    vertices = None
+        self._overlay_pass.set_corner_lines(vertices)
 
     # -- Mouse events -------------------------------------------------------
 

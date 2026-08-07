@@ -72,6 +72,7 @@ from projectionai.editor.viewport_widget import ViewportWidget
 __all__ = [
     # Subsystems
     "AxisRenderer",
+    "CalibrationOverlay",
     "CameraController",
     # Types
     "CameraPreset",

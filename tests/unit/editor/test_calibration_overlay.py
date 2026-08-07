@@ -47,9 +47,9 @@ def test_set_detection_with_none_clears() -> None:
 
 def test_set_detection_invalid_shape_raises() -> None:
     overlay = CalibrationOverlay()
-    with pytest.raises(ValueError, match="(N, 2)"):
+    with pytest.raises(ValueError, match=r"\(N, 2\)"):
         overlay.set_detection(np.zeros((4, 3), dtype=np.float32), (640, 480))
-    with pytest.raises(ValueError, match="(N, 2)"):
+    with pytest.raises(ValueError, match=r"\(N, 2\)"):
         overlay.set_detection(np.zeros((4,), dtype=np.float32), (640, 480))
 
 

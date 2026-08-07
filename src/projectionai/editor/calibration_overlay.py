@@ -7,9 +7,9 @@ OpenGL itself.
 
 It displays the most recent calibration board detection (the detected corner
 grid) and the calibration progress/status. Corner coordinates are consumed in
-camera pixel space ``(N, 2)`` together with the source image size; the overlay
-pass converts them to screen space using the viewport size, so the corner
-grid is drawn exactly where the board appeared in the captured frame.
+camera pixel space ``(N, 2)`` together with the source image size; the viewport
+widget rescales them to the viewport's pixel space before uploading, so the
+corner grid is drawn exactly where the board appeared in the captured frame.
 
 The overlay holds no vision logic and imports nothing from the calibration
 framework — it is a pure view-layer component that receives already-detected

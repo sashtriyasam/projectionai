@@ -40,8 +40,8 @@ def test_set_corner_lines_none_clears() -> None:
 
 def test_set_corner_lines_invalid_shape_raises() -> None:
     overlay_pass = OverlayPass()
-    with pytest.raises(ValueError, match="(M, 2)"):
+    with pytest.raises(ValueError, match=r"\(M, 2\)"):
         overlay_pass.set_corner_lines(np.zeros((4, 3), dtype=np.float32))
-    with pytest.raises(ValueError, match="(M, 2)"):
+    with pytest.raises(ValueError, match=r"\(M, 2\)"):
         overlay_pass.set_corner_lines(np.zeros((4,), dtype=np.float32))
     assert overlay_pass._corner_lines is None
