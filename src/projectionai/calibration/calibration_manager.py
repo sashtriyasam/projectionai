@@ -19,6 +19,7 @@ Multi-projector scaling:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any, override
@@ -37,15 +38,19 @@ from projectionai.calibration.importer import (
     ImporterRegistry,
 )
 from projectionai.calibration.pipeline import StageContext
+from projectionai.calibration.projector_stages import (
+    CorrespondenceDecodeStage,
+    ProjectorPoseStage,
+)
 from projectionai.calibration.session import CalibrationSession
 from projectionai.calibration.types import (
     CalibrationData,
     CalibrationMethod,
     CalibrationStatus,
 )
-from projectionai.calibration.validator import CalibrationValidator
+from projectionai.calibration.validator import CalibrationValidator, ValidationReport
 from projectionai.calibration.workspace import CalibrationWorkspace
-from projectionai.core.errors import CameraError
+from projectionai.core.errors import CameraError, ProjectionAIError
 from projectionai.core.events import EventBus
 from projectionai.managers import Manager
 from projectionai.managers.camera_manager import CameraManager
@@ -54,6 +59,13 @@ from projectionai.services.camera import Frame
 from projectionai.services.camera_calibration import (
     CameraCalibrationAlgorithm,
     CameraCalibrationResult,
+)
+from projectionai.services.projector_calibration import (
+    CalibratedCamera,
+    PatternProjector,
+    ProjectorCalibrationAlgorithm,
+    ProjectorCalibrationResult,
+    SurfacePlane,
 )
 
 _logger = logging.getLogger(__name__)
@@ -163,10 +175,8 @@ class CalibrationManager(Manager):
 
     # -- Validation -----------------------------------------------------------
 
-    def validate(self, session: CalibrationSession) -> Any:
+    def validate(self, session: CalibrationSession) -> ValidationReport:
         """Validate a session's result."""
-        from projectionai.calibration.validator import ValidationReport
-
         if session.result is None:
             _logger.warning("Cannot validate session %s: no result", session.id)
             return ValidationReport(passed=False, quality_score=0.0)
@@ -385,6 +395,212 @@ class CalibrationManager(Manager):
             "camera_id": camera_id,
             "image_size": list(calibration.image_size),
             "per_view_errors": list(calibration.per_view_errors),
+            "warnings": list(ctx.warnings),
+        }
+
+    # -- Projector calibration ----------------------------------------------
+
+    async def run_projector_calibration(
+        self,
+        camera_id: str,
+        algorithm: ProjectorCalibrationAlgorithm,
+        projector: PatternProjector,
+        *,
+        session_name: str = "Projector Calibration",
+        projector_id: str = "projector-1",
+        projector_resolution: tuple[int, int],
+        camera: CalibratedCamera,
+        surface: SurfacePlane,
+        settle_seconds: float = 0.1,
+        capture_timeout: float = 10.0,
+    ) -> CalibrationSession:
+        """Run a projector calibration workflow end-to-end.
+
+        Builds the algorithm's structured light sequence, projects each
+        pattern onto *surface* while capturing frames from *camera_id*,
+        then runs the correspondence decode and pose estimation stages
+        through the session pipeline, persists the result into the
+        session's calibration data, and finalises the session (history
+        entry + ``CalibrationComplete`` event).
+
+        Acquisition uses a local capture loop rather than
+        ``PatternCaptureSession`` because this flow's requirements
+        differ: the correspondence decode stage consumes the captures as
+        a ``list`` of raw RGB ``Frame`` objects (the session returns
+        grayscale arrays), per-pattern progress is reported through
+        ``session.update_progress``, and capture errors fail the session
+        gracefully (``session.fail`` + finalize) instead of raising.
+
+        Args:
+            camera_id: Camera observing the projected patterns.
+            algorithm: The projector calibration algorithm to run.
+            projector: Device that displays the patterns.
+            session_name: Human-readable session name.
+            projector_id: Identifier for the calibrated projector.
+            projector_resolution: ``(width, height)`` of the projector.
+            camera: Intrinsics of the calibrated observing camera.
+            surface: The planar surface in camera coordinates the
+                patterns are projected onto.
+            settle_seconds: Delay after each pattern display before
+                capturing, letting the display/camera stabilise.
+            capture_timeout: Per-frame capture timeout in seconds.
+
+        Returns:
+            The completed session. Check ``session.result.success`` and
+            ``session.result.error_message`` for the outcome.
+        """
+        if self._camera_manager is None:
+            msg = "CalibrationManager has no camera manager - cannot capture frames"
+            raise RuntimeError(msg)
+        if projector_resolution[0] <= 0 or projector_resolution[1] <= 0:
+            raise ValueError(
+                f"projector_resolution must be positive, got {projector_resolution}"
+            )
+
+        session = self.create_session(name=session_name, method=algorithm.method)
+        session.state.active_camera_id = camera_id
+        session.state.active_projector_id = projector_id
+        await session.start(algorithm.method)
+
+        # -- Build sequence and acquire frames -------------------------------
+        session.state.status = CalibrationStatus.ACQUIRING
+        sequence = algorithm.build_sequence(projector_resolution)
+        frames: list[Frame] = []
+        try:
+            for index, pattern in enumerate(sequence.patterns):
+                try:
+                    await projector.show(pattern.image)
+                except ProjectionAIError as exc:
+                    await session.fail(f"Projector display failed: {exc}")
+                    session.finalize()
+                    return session
+                await asyncio.sleep(settle_seconds)
+                try:
+                    frame = await asyncio.wait_for(
+                        self._camera_manager.capture_frame(camera_id),
+                        timeout=capture_timeout,
+                    )
+                except (CameraError, TimeoutError) as exc:
+                    await session.fail(f"Frame capture failed: {exc}")
+                    session.finalize()
+                    return session
+                frames.append(frame)
+                session.update_progress(
+                    (index + 1) / (len(sequence.patterns) + 2),
+                    f"Captured pattern {index + 1}/{len(sequence.patterns)}",
+                    stage="capture",
+                )
+        finally:
+            await projector.hide()
+
+        # -- Pipeline: decode + pose -----------------------------------------
+        session.state.status = CalibrationStatus.PROCESSING
+        session.pipeline.add_stage(CorrespondenceDecodeStage(algorithm))
+        session.pipeline.add_stage(ProjectorPoseStage(algorithm))
+        ctx = StageContext(
+            data={
+                "projector_frames": frames,
+                "pattern_sequence": sequence,
+                "projector_resolution": projector_resolution,
+                "calibrated_camera": camera,
+                "surface_plane": surface,
+            }
+        )
+        ctx = await session.pipeline.run(ctx)
+
+        if ctx.errors:
+            await session.fail("; ".join(ctx.errors))
+            session.finalize()
+            return session
+
+        calibration: ProjectorCalibrationResult = ctx.data["projector_calibration"]
+        self._commit_projector_result(
+            session, projector_id, camera_id, calibration, ctx
+        )
+        session.state.intermediate_results["correspondence_count"] = (
+            calibration.num_correspondences
+        )
+        session.state.intermediate_results["coverage"] = calibration.coverage
+        session.state.status = CalibrationStatus.COMPLETED
+        session.update_progress(1.0, "Calibration complete")
+        session.finalize()
+        return session
+
+    def enqueue_projector_calibration(
+        self,
+        camera_id: str,
+        algorithm: ProjectorCalibrationAlgorithm,
+        projector: PatternProjector,
+        *,
+        session_name: str = "Projector Calibration",
+        projector_id: str = "projector-1",
+        projector_resolution: tuple[int, int],
+        camera: CalibratedCamera,
+        surface: SurfacePlane,
+        settle_seconds: float = 0.1,
+        capture_timeout: float = 10.0,
+    ) -> JobInfo | None:
+        """Enqueue a projector calibration run as a background job.
+
+        Returns ``None`` when no ``JobManager`` is available.
+        """
+        if self._job_manager is None:
+            return None
+        job_id = f"projector-calibration-{uuid4().hex[:8]}"
+        return self._job_manager.enqueue(
+            job_id,
+            session_name,
+            self.run_projector_calibration,
+            kwargs={
+                "camera_id": camera_id,
+                "algorithm": algorithm,
+                "projector": projector,
+                "session_name": session_name,
+                "projector_id": projector_id,
+                "projector_resolution": projector_resolution,
+                "camera": camera,
+                "surface": surface,
+                "settle_seconds": settle_seconds,
+                "capture_timeout": capture_timeout,
+            },
+        )
+
+    def _commit_projector_result(
+        self,
+        session: CalibrationSession,
+        projector_id: str,
+        camera_id: str,
+        calibration: ProjectorCalibrationResult,
+        ctx: StageContext,
+    ) -> None:
+        """Persist a projector calibration into the session's calibration data.
+
+        Stores the result under ``CalibrationData.projector_pose[projector_id]``
+        with the projector intrinsics, pose, and resolution, plus quality
+        metrics. The pose maps projector-local 3D points into the camera
+        coordinate frame (the projector's pose in the camera frame).
+        """
+        if session.state.data is None:
+            session.state.data = CalibrationData()
+        data = session.state.data
+        data.method = session.state.current_method
+        data.projector_pose[projector_id] = {
+            "projector_matrix": calibration.projector_intrinsics.tolist(),
+            "pose": calibration.projector_pose.tolist(),
+            "width": calibration.projector_resolution[0],
+            "height": calibration.projector_resolution[1],
+        }
+        data.reprojection_error = calibration.reprojection_error
+        data.residuals = list(calibration.per_point_errors)
+        data.num_samples = calibration.num_correspondences
+        data.confidence = calibration.confidence
+        data.custom = {
+            "projector_id": projector_id,
+            "camera_id": camera_id,
+            "coverage": calibration.coverage,
+            "image_size": list(calibration.image_size),
+            "camera_matrix": calibration.camera_matrix.tolist(),
+            "distortion_coeffs": calibration.distortion_coeffs.tolist(),
             "warnings": list(ctx.warnings),
         }
 
