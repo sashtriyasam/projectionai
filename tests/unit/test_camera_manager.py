@@ -13,6 +13,7 @@ from projectionai.core.errors import (
     CameraDisconnectedError,
     CameraNotFoundError,
     CameraUnavailableError,
+    ManagerNotInitializedError,
 )
 from projectionai.core.events import (
     CameraClosed,
@@ -196,6 +197,89 @@ async def test_disconnect_emits_event_and_stops_loop(
     )
     await _wait_for(lambda: "mock-0" not in camera_manager._capture_tasks)
     event_bus.assert_event_emitted(CameraDisconnected)
+
+
+# -- Frame subscribers ------------------------------------------------------
+
+
+def _noop_frame_handler(_frame: Frame) -> None:
+    """Frame handler that ignores its input (used for registry checks)."""
+
+
+def _exploding_frame_handler(_frame: Frame) -> None:
+    """Frame handler that raises, to prove failures are isolated."""
+    raise RuntimeError("handler boom")
+
+
+async def test_subscribe_frames_receives_captured_frames(
+    camera_manager: CameraManager,
+) -> None:
+    received: list[Frame] = []
+    camera_manager.subscribe_frames("mock-0", received.append)
+    await camera_manager.start_capture("mock-0", fps=60)
+    await _wait_for(lambda: len(received) >= 2)
+    await camera_manager.stop_capture("mock-0")
+    assert all(frame.camera_id == "mock-0" for frame in received)
+    numbers = [frame.frame_number for frame in received]
+    assert numbers == sorted(numbers)
+
+
+async def test_unsubscribe_stops_frame_delivery(
+    camera_manager: CameraManager,
+) -> None:
+    received: list[Frame] = []
+    camera_manager.subscribe_frames("mock-0", received.append)
+    await camera_manager.start_capture("mock-0", fps=30)
+    await _wait_for(lambda: len(received) >= 2)
+    camera_manager.unsubscribe_frames("mock-0", received.append)
+    count = len(received)
+    await asyncio.sleep(0.15)
+    assert len(received) == count
+    await camera_manager.stop_capture("mock-0")
+
+
+async def test_subscribe_same_handler_is_idempotent(
+    camera_manager: CameraManager,
+) -> None:
+    camera_manager.subscribe_frames("mock-0", _noop_frame_handler)
+    camera_manager.subscribe_frames("mock-0", _noop_frame_handler)
+    assert camera_manager.frame_subscriber_count("mock-0") == 1
+
+
+async def test_unsubscribe_unknown_camera_is_noop(
+    camera_manager: CameraManager,
+) -> None:
+    camera_manager.unsubscribe_frames("mock-9", _noop_frame_handler)
+    assert camera_manager.frame_subscriber_count("mock-9") == 0
+
+
+async def test_failing_handler_does_not_stop_capture_loop(
+    camera_manager: CameraManager,
+) -> None:
+    received: list[Frame] = []
+    camera_manager.subscribe_frames("mock-0", _exploding_frame_handler)
+    camera_manager.subscribe_frames("mock-0", received.append)
+    await camera_manager.start_capture("mock-0", fps=30)
+    await _wait_for(lambda: len(received) >= 2)
+    await camera_manager.stop_capture("mock-0")
+    assert len(received) >= 2
+
+
+async def test_close_camera_removes_subscribers(
+    camera_manager: CameraManager,
+) -> None:
+    camera_manager.subscribe_frames("mock-0", _noop_frame_handler)
+    assert camera_manager.frame_subscriber_count("mock-0") == 1
+    await camera_manager.close_camera("mock-0")
+    assert camera_manager.frame_subscriber_count("mock-0") == 0
+
+
+async def test_subscribe_requires_initialized_manager(
+    event_bus: FakeEventBus,
+) -> None:
+    manager = CameraManager(event_bus, provider=MockCameraProvider(camera_count=1))
+    with pytest.raises(ManagerNotInitializedError):
+        manager.subscribe_frames("mock-0", _noop_frame_handler)
 
 
 # -- Properties -------------------------------------------------------------

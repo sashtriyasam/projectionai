@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import logging
 import uuid
+from collections.abc import Callable
 from typing import override
 
 from projectionai.core.errors import (
@@ -59,6 +60,7 @@ class CameraManager(Manager):
         self._camera_infos: dict[str, CameraInfo] = {}
         self._cameras: dict[str, Camera] = {}
         self._capture_tasks: dict[str, asyncio.Task[None]] = {}
+        self._frame_subscribers: dict[str, list[Callable[[Frame], None]]] = {}
 
     # -- Enumeration --------------------------------------------------------
 
@@ -102,6 +104,7 @@ class CameraManager(Manager):
         """Stop capture and close a camera, emitting ``CameraClosed``."""
         await self.stop_capture(camera_id)
         camera = self._cameras.pop(camera_id, None)
+        self._frame_subscribers.pop(camera_id, None)
         if camera is None:
             return
         await camera.close()
@@ -169,6 +172,46 @@ class CameraManager(Manager):
         with contextlib.suppress(asyncio.CancelledError):
             await task
 
+    # -- Frame subscribers ----------------------------------------------------
+
+    def subscribe_frames(
+        self, camera_id: str, handler: Callable[[Frame], None]
+    ) -> None:
+        """Register *handler* to receive every captured frame for *camera_id*.
+
+        Handlers run synchronously on the event-loop thread for each
+        captured frame. A failing handler is logged and skipped — it does
+        not stop the capture loop. Unsubscribe with :meth:`unsubscribe_frames`.
+        """
+        self._require_initialized()
+        subscribers = self._frame_subscribers.setdefault(camera_id, [])
+        if handler not in subscribers:
+            subscribers.append(handler)
+
+    def unsubscribe_frames(
+        self, camera_id: str, handler: Callable[[Frame], None]
+    ) -> None:
+        """Remove a previously registered frame handler (no-op if absent)."""
+        subscribers = self._frame_subscribers.get(camera_id)
+        if subscribers is None:
+            return
+        if handler in subscribers:
+            subscribers.remove(handler)
+        if not subscribers:
+            self._frame_subscribers.pop(camera_id, None)
+
+    def frame_subscriber_count(self, camera_id: str) -> int:
+        """Number of registered frame handlers for *camera_id*."""
+        return len(self._frame_subscribers.get(camera_id, ()))
+
+    def _deliver_frame(self, camera_id: str, frame: Frame) -> None:
+        """Call every registered frame handler, isolating handler failures."""
+        for handler in list(self._frame_subscribers.get(camera_id, ())):
+            try:
+                handler(frame)
+            except Exception:
+                _logger.exception("Frame handler failed for camera %s", camera_id)
+
     # -- Properties ---------------------------------------------------------
 
     async def get_property(self, camera_id: str, prop: CameraProperty) -> float | None:
@@ -228,6 +271,7 @@ class CameraManager(Manager):
                     height=frame.height,
                 )
             )
+            self._deliver_frame(camera_id, frame)
             await asyncio.sleep(interval)
 
     def _get_provider(self) -> CameraProvider | None:
@@ -269,3 +313,4 @@ class CameraManager(Manager):
             camera = self._cameras.pop(camera_id)
             await camera.close()
             self._emit_nowait(CameraClosed(camera_id=camera_id))
+        self._frame_subscribers.clear()
