@@ -11,6 +11,8 @@
 - Real application screenshot in `screenshots/`, embedded in the README
 - Root `ROADMAP.md` with milestone-by-milestone tracking
 - Calibration subsystem documentation in `docs/Architecture.md`
+- Windows packaging pipeline: PyInstaller spec + launcher (`packaging/`), programmatic icon generator, build automation (`scripts/build_package.ps1`), optional Inno Setup script (`installer/`)
+- Packaging documentation: `docs/BUILD.md`, `docs/PACKAGING.md`, `docs/KNOWN-LIMITATIONS.md`, `docs/SMOKE-TEST.md`
 
 ### Changed
 
