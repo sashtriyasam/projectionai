@@ -296,6 +296,7 @@ The event bus enables decoupled communication between managers and UI:
 # Emitting
 await event_bus.emit(SceneChanged(scene_id="abc"))
 
+
 # Listening
 @event_bus.on(SceneChanged)
 async def on_scene_changed(event: SceneChanged):
