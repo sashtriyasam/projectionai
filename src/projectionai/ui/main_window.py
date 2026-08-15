@@ -51,6 +51,8 @@ from projectionai.ui.panels import (
     AiAssistantPanel,
     AssetsPanel,
     CalibrationSessionsPanel,
+    CameraPanel,
+    ConsolePanel,
     DevicesPanel,
     DisplaysPanel,
     HistoryPanel,
@@ -85,6 +87,8 @@ _PANEL_TITLES: dict[str, str] = {
     "devices": "Devices",
     "displays": "Displays",
     "calibration": "Calibration",
+    "camera": "Camera",
+    "console": "Console",
     "jobs": "Jobs",
     "history": "History",
     "inspector": "Inspector",
@@ -129,6 +133,8 @@ _PRESETS: tuple[WorkspaceLayout, ...] = (
         scenes=True,
         assets=True,
         devices=True,
+        camera=True,
+        console=True,
         displays=True,
         calibration=True,
         jobs=True,
@@ -145,6 +151,7 @@ _PRESETS: tuple[WorkspaceLayout, ...] = (
         "Calibration",
         scenes=True,
         devices=True,
+        camera=True,
         displays=True,
         calibration=True,
         history=True,
@@ -173,6 +180,8 @@ _PRESETS: tuple[WorkspaceLayout, ...] = (
         "Live Show",
         locked=True,
         devices=True,
+        camera=True,
+        console=True,
         displays=True,
         timeline=True,
         live=True,
@@ -181,6 +190,7 @@ _PRESETS: tuple[WorkspaceLayout, ...] = (
         "Multi Projector",
         scenes=True,
         devices=True,
+        camera=True,
         displays=True,
         inspector=True,
         live=True,
@@ -222,6 +232,7 @@ class MainWindow(QMainWindow):
         self._panels: dict[str, ViewModelPanel] = {}
         self._project_vm: ProjectViewModel | None = None
         self._output_vm: OutputViewModel | None = None
+        self._calibration_vm: CalibrationViewModel | None = None
         self._viewport: MainViewport | None = None
         self._status_bar: StatusBar | None = None
         self._actions: Actions | None = None
@@ -262,12 +273,17 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self._viewport)
 
         # -- Docks (keys = stable panel ids; see _build_docks) -------------
+        calibration_vm = CalibrationViewModel(self._app.calibration)
+        self._calibration_vm = calibration_vm
+        calibration_vm.subscribe(self._sync_calibration_overlay)
         self._build_docks(
             scenes=scenes_vm,
             assets=AssetsViewModel(self._app.assets),
             devices=devices_vm,
+            camera=devices_vm,
+            console=None,
             displays=displays_vm,
-            calibration=CalibrationViewModel(self._app.calibration),
+            calibration=calibration_vm,
             jobs=JobsViewModel(self._app.jobs),
             history=HistoryViewModel(self._app.commands),
             inspector=scenes_vm,
@@ -322,12 +338,13 @@ class MainWindow(QMainWindow):
 
     def _build_docks(self, **vms: Any) -> None:
         """Create all dock panels, bind view models, and arrange docks."""
-        # Left section stack: Scenes, Assets, Devices, Displays, Calibration,
-        # Jobs, History.
+        # Left section stack: Scenes, Assets, Devices, Camera, Displays,
+        # Calibration, Jobs, History.
         left: list[tuple[type[ViewModelPanel], str]] = [
             (ScenesPanel, "scenes"),
             (AssetsPanel, "assets"),
             (DevicesPanel, "devices"),
+            (CameraPanel, "camera"),
             (DisplaysPanel, "displays"),
             (CalibrationSessionsPanel, "calibration"),
             (JobsPanel, "jobs"),
@@ -363,8 +380,9 @@ class MainWindow(QMainWindow):
         right_docks[0].raise_()
 
         # Bottom: Timeline (full width) + Timeline Properties + AI Assistant
-        # stacked to the right (UX §11).
+        # stacked to the right (UX §11); Console split beside the timeline.
         timeline_dock = self._add_panel(TimelineWidget(), vms["timeline"], areas[2])
+        console_dock = self._add_panel(ConsolePanel(), vms.get("console"), areas[2])
         bottom_right: list[QDockWidget] = [
             self._add_panel(
                 TimelinePropertiesPanel(), vms["timeline_properties"], areas[2]
@@ -372,7 +390,8 @@ class MainWindow(QMainWindow):
             self._add_panel(AiAssistantPanel(), vms["ai_assistant"], areas[2]),
         ]
         self.tabifyDockWidget(bottom_right[0], bottom_right[1])
-        self.splitDockWidget(timeline_dock, bottom_right[0], Qt.Orientation.Horizontal)
+        self.splitDockWidget(timeline_dock, console_dock, Qt.Orientation.Horizontal)
+        self.splitDockWidget(console_dock, bottom_right[0], Qt.Orientation.Horizontal)
         timeline_dock.resize(900, 200)
 
     def _add_panel(
@@ -508,6 +527,13 @@ class MainWindow(QMainWindow):
         if self._viewport is not None:
             self._viewport.refresh()
 
+    def _sync_calibration_overlay(self) -> None:
+        """Push the latest calibration detection onto the preview canvas."""
+        if self._viewport is None or self._calibration_vm is None:
+            return
+        corners, image_size = self._calibration_vm.calibration_overlay()
+        self._viewport.preview.scene_widget.set_calibration_overlay(corners, image_size)
+
     # -- Project loading ----------------------------------------------------
 
     def load_project(self, project: Project) -> None:
@@ -525,6 +551,8 @@ class MainWindow(QMainWindow):
     @override
     def closeEvent(self, event: QCloseEvent) -> None:
         self._poll_timer.stop()
+        if self._calibration_vm is not None:
+            self._calibration_vm.unsubscribe(self._sync_calibration_overlay)
         self._app.event_bus.unsubscribe(
             WorkspaceLayoutChanged, self._on_workspace_changed
         )

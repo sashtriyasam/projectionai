@@ -10,7 +10,10 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QApplication, QSplashScreen
 
 import anyio
 from platformdirs import user_data_dir
@@ -195,7 +198,9 @@ class Application:
         command_mgr = CommandManager(self._event_bus)
         job_mgr = self._job_manager or JobManager(self._event_bus)
         camera_mgr = self._camera_manager or CameraManager(
-            self._event_bus, job_manager=job_mgr
+            self._event_bus,
+            job_manager=job_mgr,
+            provider_name=self._config.camera_provider,
         )
         scene_mgr = SceneManager(self._event_bus)
         asset_mgr = AssetManager(self._event_bus)
@@ -387,36 +392,60 @@ class Application:
         _logger.info("Shutdown complete")
 
 
-def run_app(config: AppConfig, project_path: str | None = None) -> int:
+def run_app(
+    config: AppConfig,
+    project_path: str | None = None,
+    *,
+    show_splash: bool = True,
+) -> int:
     """Create the application, initialize, and enter the Qt event loop."""
-    app = Application(config)
-
-    async def _async_main() -> int:
-        await app.initialize()
-        return await _run_qt(app, project_path)
-
-    try:
-        return anyio.run(_async_main)
-    except RuntimeError:
-        _logger.critical("Fatal initialization failure — exiting")
-        return 1
-    except KeyboardInterrupt:
-        _logger.info("Interrupted by user")
-        return 0
-
-
-async def _run_qt(app: Application, project_path: str | None = None) -> int:
-    """Start the PySide6 event loop."""
     from PySide6.QtWidgets import QApplication
 
     qapp = QApplication(sys.argv)
     qapp.setApplicationName("ProjectionAI")
     qapp.setOrganizationName("ProjectionAI")
 
+    app = Application(config)
+    splash = _build_splash(qapp) if show_splash else None
+    if splash is not None:
+        splash.show()
+
+    async def _pump_qt_events() -> None:
+        while True:
+            qapp.processEvents()
+            await anyio.sleep(0.02)
+
+    async def _async_main() -> int:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_pump_qt_events)
+            await app.initialize()
+            tg.cancel_scope.cancel()
+        return await _run_qt(app, qapp, project_path, splash=splash)
+
+    try:
+        return anyio.run(_async_main)
+    except RuntimeError:
+        _logger.critical("Fatal initialization failure — exiting")
+        raise
+    except KeyboardInterrupt:
+        _logger.info("Interrupted by user")
+        return 0
+
+
+async def _run_qt(
+    app: Application,
+    qapp: QApplication,
+    project_path: str | None = None,
+    *,
+    splash: QSplashScreen | None = None,
+) -> int:
+    """Start the PySide6 event loop with the already-created app."""
     from projectionai.ui.main_window import MainWindow
 
     window = MainWindow(app)
     window.show()
+    if splash is not None:
+        splash.finish(window)
 
     # Load project if specified
     if project_path:
@@ -430,3 +459,47 @@ async def _run_qt(app: Application, project_path: str | None = None) -> int:
 
     await app.shutdown()
     return exit_code
+
+
+def _build_splash(qapp: QApplication) -> QSplashScreen:
+    """Build a programmatic dark-brand splash screen (no asset files)."""
+    from PySide6.QtCore import QRect, Qt
+    from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
+    from PySide6.QtWidgets import QSplashScreen
+
+    from projectionai.ui.theme import ACCENT, TEXT, TEXT_DIM, WINDOW_BG
+
+    size = (520, 300)
+    pixmap = QPixmap(*size)
+    pixmap.fill(QColor(WINDOW_BG))
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+    title_font = QFont("Segoe UI", 26, QFont.Weight.DemiBold)
+    painter.setFont(title_font)
+    painter.setPen(QColor(TEXT))
+    painter.drawText(
+        QRect(0, 110, size[0], 48), Qt.AlignmentFlag.AlignCenter, "ProjectionAI"
+    )
+
+    tag_font = QFont("Segoe UI", 11)
+    painter.setFont(tag_font)
+    painter.setPen(QColor(ACCENT))
+    painter.drawText(
+        QRect(0, 160, size[0], 24), Qt.AlignmentFlag.AlignCenter, "Developer Preview"
+    )
+
+    version_font = QFont("Segoe UI", 9)
+    painter.setFont(version_font)
+    painter.setPen(QColor(TEXT_DIM))
+    painter.drawText(
+        QRect(0, 190, size[0], 20),
+        Qt.AlignmentFlag.AlignCenter,
+        f"v{__version__}",
+    )
+    painter.end()
+
+    splash = QSplashScreen(pixmap)
+    splash.show()
+    qapp.processEvents()
+    return splash

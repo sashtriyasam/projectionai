@@ -12,6 +12,8 @@ from projectionai.ui.panels.ai_assistant_panel import AiAssistantPanel
 from projectionai.ui.panels.assets_panel import AssetsPanel
 from projectionai.ui.panels.base import ViewModelPanel
 from projectionai.ui.panels.calibration_panel import CalibrationSessionsPanel
+from projectionai.ui.panels.camera_panel import CameraPanel
+from projectionai.ui.panels.console_panel import ConsolePanel
 from projectionai.ui.panels.devices_panel import DevicesPanel
 from projectionai.ui.panels.displays_panel import DisplaysPanel
 from projectionai.ui.panels.history_panel import HistoryPanel
@@ -27,6 +29,8 @@ __all__ = [
     "AiAssistantPanel",
     "AssetsPanel",
     "CalibrationSessionsPanel",
+    "CameraPanel",
+    "ConsolePanel",
     "DevicesPanel",
     "DisplaysPanel",
     "HistoryPanel",

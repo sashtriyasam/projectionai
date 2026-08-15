@@ -33,6 +33,7 @@ from projectionai.ui.theme import (
     ACCENT,
     BORDER,
     BORDER_LIGHT,
+    OK_GREEN,
     SELECTION_BG,
     TEXT,
     TEXT_DIM,
@@ -64,6 +65,8 @@ class SceneWidget(QWidget):
         self._zoom: float = 1.0
         self._scene_name: str = ""
         self._markers: dict[str, QRectF] = {}
+        self._calibration_corners: list[tuple[int, int]] | None = None
+        self._calibration_image_size: tuple[int, int] | None = None
 
     # -- View model ---------------------------------------------------------
 
@@ -134,6 +137,18 @@ class SceneWidget(QWidget):
     def scene_name(self) -> str:
         """Name of the active scene (``""`` when none)."""
         return self._scene_name
+
+    # -- Calibration overlay ---------------------------------------------------
+
+    def set_calibration_overlay(
+        self,
+        corners: list[tuple[int, int]] | None,
+        image_size: tuple[int, int] | None = None,
+    ) -> None:
+        """Show detected board corners on the canvas (``None`` clears)."""
+        self._calibration_corners = corners
+        self._calibration_image_size = image_size
+        self.update()
 
     # -- Interaction (UX §7.1) ----------------------------------------------
 
@@ -210,6 +225,7 @@ class SceneWidget(QWidget):
         painter.fillRect(self.rect(), qcolor(WELL_BG))
         self._paint_grid(painter)
         self._paint_markers(painter)
+        self._paint_calibration(painter)
         self._paint_overlay(painter)
         painter.end()
 
@@ -261,6 +277,26 @@ class SceneWidget(QWidget):
             painter.drawText(
                 rect.adjusted(4.0, 0, -4.0, 0), Qt.AlignmentFlag.AlignCenter, name
             )
+
+    def _paint_calibration(self, painter: QPainter) -> None:
+        """Draw the detected board corners as individual green markers."""
+        corners = self._calibration_corners
+        if not corners:
+            return
+        width = max(self.width(), 1)
+        height = max(self.height(), 1)
+        image_size = self._calibration_image_size
+        if image_size is not None and image_size[0] > 0 and image_size[1] > 0:
+            sx = width / image_size[0]
+            sy = height / image_size[1]
+        else:
+            sx = 1.0
+            sy = 1.0
+        painter.setPen(QPen(qcolor(OK_GREEN), 2.0))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for x, y in corners:
+            point = QPointF(x * sx, y * sy)
+            painter.drawEllipse(point, 2.0, 2.0)
 
     def _paint_overlay(self, painter: QPainter) -> None:
         """Draw the corner labels (scene · view mode, zoom)."""

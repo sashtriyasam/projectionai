@@ -113,6 +113,10 @@ class AppConfig(BaseSettings):
         default=None,
         validation_alias="PROJECTIONAI_DATA_DIR",
     )
+    camera_provider: str = Field(
+        default="opencv",
+        validation_alias="PROJECTIONAI_CAMERA_PROVIDER",
+    )
 
     # -- AI -----------------------------------------------------------------
 

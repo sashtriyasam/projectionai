@@ -36,6 +36,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override the log level",
     )
     _ = parser.add_argument(
+        "--no-splash",
+        action="store_true",
+        help="Skip the startup splash screen",
+    )
+    _ = parser.add_argument(
         "project",
         nargs="?",
         type=str,
@@ -56,6 +61,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ProjectionAI v{__version__}")
         return 0
 
+    # Install exception hooks early so config/init failures surface
+    # as the error dialog instead of a raw traceback.
+    from projectionai.ui.dialogs.error_dialog import install_exception_hooks
+
+    install_exception_hooks()
+
     # Configure logging
     from projectionai.core.config import load_config
     from projectionai.core.logging import configure_logging
@@ -69,7 +80,11 @@ def main(argv: list[str] | None = None) -> int:
     # Launch the Qt application
     from projectionai.app import run_app
 
-    return run_app(config, project_path=args.project)
+    return run_app(
+        config,
+        project_path=args.project,
+        show_splash=not args.no_splash,
+    )
 
 
 if __name__ == "__main__":

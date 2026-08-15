@@ -112,6 +112,12 @@ class CameraManager(Manager):
         camera = self._cameras.get(camera_id)
         return camera is not None and camera.is_open
 
+    def open_camera_ids(self) -> tuple[str, ...]:
+        """Ids of all cameras currently open, in open order."""
+        return tuple(
+            camera_id for camera_id, camera in self._cameras.items() if camera.is_open
+        )
+
     # -- Capture ------------------------------------------------------------
 
     async def capture_frame(self, camera_id: str) -> Frame:

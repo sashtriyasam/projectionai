@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QInputDialog,
+    QLabel,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -34,6 +35,7 @@ from projectionai.ui.theme import (
     TEXT_FAINT,
     WARN_YELLOW,
 )
+from projectionai.ui.widgets.panel_base import run_async
 
 _USER_ROLE = int(Qt.ItemDataRole.UserRole)
 
@@ -90,6 +92,21 @@ class CalibrationSessionsPanel(ViewModelPanel):
         actions.addStretch(1)
         root.addLayout(actions)
 
+        # -- Camera calibration run row ------------------------------------------
+        run_row = QHBoxLayout()
+        run_row.setContentsMargins(4, 4, 4, 4)
+        run_row.setSpacing(4)
+        self.run_button = make_action_button(
+            "Run Camera Calibration", self._run_camera_calibration
+        )
+        self.run_button.setObjectName("runCalibrationButton")
+        self.status_label = QLabel("")
+        self.status_label.setObjectName("calibrationStatusLabel")
+        self.status_label.setWordWrap(True)
+        run_row.addWidget(self.run_button)
+        run_row.addWidget(self.status_label, stretch=1)
+        root.addLayout(run_row)
+
     # -- Refresh -------------------------------------------------------------
 
     def refresh(self) -> None:
@@ -100,6 +117,7 @@ class CalibrationSessionsPanel(ViewModelPanel):
         try:
             self._rebuild_methods()
             self._rebuild_list()
+            self._sync_run_state()
         finally:
             self._refreshing = False
 
@@ -249,3 +267,32 @@ class CalibrationSessionsPanel(ViewModelPanel):
         )
         if result == QMessageBox.StandardButton.Yes:
             vm.remove_session(session_id)
+
+    # -- Camera calibration run -------------------------------------------------
+
+    def _sync_run_state(self) -> None:
+        """Reflect the run button + status label from the view model."""
+        vm = self._viewmodel
+        if vm is None:
+            self.run_button.setEnabled(False)
+            return
+        self.run_button.setEnabled(not vm.is_calibration_running())
+        status = vm.last_run_status()
+        if status is not None:
+            self.status_label.setText(status)
+
+    def _run_camera_calibration(self) -> None:
+        """Start a camera intrinsic calibration on the first open camera."""
+        vm = self._viewmodel
+        if vm is None:
+            return
+        camera_ids = vm.open_camera_ids()
+        if not camera_ids:
+            QMessageBox.information(
+                self,
+                "Run Camera Calibration",
+                "Open a camera first (Camera panel).",
+            )
+            return
+        self.run_button.setEnabled(False)
+        run_async(vm.run_camera_calibration(camera_ids[0]))
