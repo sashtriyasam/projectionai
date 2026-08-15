@@ -374,7 +374,7 @@ class PropertyEditorWidget(QScrollArea):
 
     def _add_section(self, section: PropertySection) -> None:
         header = _SectionHeader(section.title, section.collapsed)
-        content = QWidget()
+        content = QWidget(self._container)
         content.setObjectName("propSection")
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
