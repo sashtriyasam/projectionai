@@ -69,6 +69,10 @@ dependencies = [
     "anyio>=4.2",
 ]
 
+[project.gui-scripts]
+# GUI entry point — launches the desktop shell (no console window on Windows).
+projectionai = "projectionai.main:main"
+
 [project.optional-dependencies]
 gemini = [
     "google-genai>=1.0",
@@ -103,6 +107,9 @@ dev = [
     "pre-commit>=3.6",
     "tox>=4.12",
     "nox>=2024.3",
+
+    # Packaging
+    "pyinstaller>=6.0",
 
     # Documentation
     "mkdocs>=1.5",
