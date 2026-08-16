@@ -224,6 +224,20 @@ async def test_subscribe_frames_receives_captured_frames(
     assert numbers == sorted(numbers)
 
 
+async def test_capture_frame_delivers_to_subscribers(
+    camera_manager: CameraManager,
+) -> None:
+    """Direct single-frame captures must reach subscribe_frames() handlers."""
+    received: list[Frame] = []
+    camera_manager.subscribe_frames("mock-0", received.append)
+    await camera_manager.open_camera("mock-0")
+
+    frame = await camera_manager.capture_frame("mock-0")
+
+    assert received == [frame]
+    assert camera_manager.frame_subscriber_count("mock-0") == 1
+
+
 async def test_unsubscribe_stops_frame_delivery(
     camera_manager: CameraManager,
 ) -> None:

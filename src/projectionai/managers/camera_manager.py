@@ -124,7 +124,8 @@ class CameraManager(Manager):
     # -- Capture ------------------------------------------------------------
 
     async def capture_frame(self, camera_id: str) -> Frame:
-        """Capture a single frame and emit ``CameraFrameCaptured``."""
+        """Capture a single frame, emit ``CameraFrameCaptured``, and deliver
+        it to registered frame subscribers."""
         self._require_initialized()
         camera = self._require_camera(camera_id)
         frame = await camera.capture()
@@ -136,6 +137,7 @@ class CameraManager(Manager):
                 height=frame.height,
             )
         )
+        self._deliver_frame(camera_id, frame)
         return frame
 
     def snapshot(self, camera_id: str, name: str = "camera.snapshot") -> JobInfo | None:
