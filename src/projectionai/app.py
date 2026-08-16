@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from PySide6.QtWidgets import QApplication, QSplashScreen
+    from PySide6.QtWidgets import QApplication, QSplashScreen, QWidget
 
 import anyio
 from platformdirs import user_data_dir
@@ -432,6 +432,34 @@ def run_app(
         return 0
 
 
+async def _drive_qt_loop(qapp: QApplication, window: QWidget) -> None:
+    """Run the Qt event loop cooperatively with the asyncio loop.
+
+    A blocking ``qapp.exec()`` would starve every asyncio task scheduled
+    from Qt callbacks via ``run_async`` (see ``ui.widgets.panel_base``):
+    the asyncio loop never regains control, so fire-and-forget view-model
+    work (camera refresh, open/close, preview) silently never runs. Pump
+    Qt events and yield to asyncio until the main window closes.
+
+    ``exec()``-only quit signals (``closingDown()``, ``aboutToQuit``,
+    ``lastWindowClosed``) are never emitted by a manual ``processEvents``
+    pump, so the loop watches the window's visibility instead — the
+    application quits exactly when ``MainWindow.close()`` runs.
+
+    ``processEvents()`` also does not deliver ``DeferredDelete`` events,
+    so each iteration explicitly flushes them with
+    ``sendPostedEvents(None, QEvent.Type.DeferredDelete)``; otherwise
+    objects scheduled via ``deleteLater()`` would leak until process
+    exit.
+    """
+    from PySide6.QtCore import QEvent
+
+    while window.isVisible() and not qapp.closingDown():
+        qapp.processEvents()
+        qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        await anyio.sleep(0.02)
+
+
 async def _run_qt(
     app: Application,
     qapp: QApplication,
@@ -455,10 +483,10 @@ async def _run_qt(
         except Exception as exc:
             _logger.error("Failed to open project %s: %s", project_path, exc)
 
-    exit_code = qapp.exec()
+    await _drive_qt_loop(qapp, window)
 
     await app.shutdown()
-    return exit_code
+    return 0
 
 
 def _build_splash(qapp: QApplication) -> QSplashScreen:

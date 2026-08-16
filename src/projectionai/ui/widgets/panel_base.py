@@ -7,10 +7,10 @@ the :class:`MainWindow` wraps them in :class:`QDockWidget` instances
 registered under the same id.
 
 ``run_async`` schedules an async view-model call on the application's
-event loop. The app boots under ``anyio.run`` (asyncio) with
-``qapp.exec()`` nested inside it, so ``ensure_future`` is safe from Qt
-callbacks; in offscreen tests with no running loop it falls back to
-``asyncio.run``.
+event loop. The app boots under ``anyio.run`` (asyncio) and drives the
+Qt event loop cooperatively with it (see ``app._drive_qt_loop``), so
+``ensure_future`` is safe from Qt callbacks; in offscreen tests with no
+running loop it falls back to ``asyncio.run``.
 """
 
 from __future__ import annotations

@@ -38,6 +38,11 @@ Expected: `ALIVE` — the main window opens without an exception dialog.
    corners) after calibration completes.
 5. Closing the window exits cleanly (no frozen process in Task
    Manager).
+6. **Cameras panel → live preview**: select a camera and press
+   **Preview**; a live image appears in the preview area with a
+   `LIVE · <id> · WxH · fps · N frames · M dropped` info line, and the
+   camera's list entry shows **LIVE**. Press **Stop** to reset the
+   preview to "No preview". (See `CAMERA-LIVE-PREVIEW.md`.)
 
 ## 4. Headless Test Suite
 
