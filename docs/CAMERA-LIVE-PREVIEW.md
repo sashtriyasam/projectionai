@@ -83,8 +83,12 @@ visible; a close event clears the message during teardown.
 ## Concurrency Model
 
 Capture, frame delivery, and painting all run on the asyncio/Qt main
-thread (asyncio tasks advance during `qapp.exec()`), so no locks are
-needed. `run_async` schedules view-model coroutines fire-and-forget
+thread, so no locks are needed. Instead of a blocking `qapp.exec()`,
+`_run_qt()` drives the Qt event loop cooperatively with AnyIO:
+`_drive_qt_loop()` alternates `qapp.processEvents()` with
+`await anyio.sleep(0.02)`, so Qt callbacks (UI signals, frame delivery)
+and asyncio tasks (view-model coroutines) both advance on the same
+thread. `run_async` schedules view-model coroutines fire-and-forget
 with a keep-alive set; panel actions stay non-blocking.
 
 ## Testing
