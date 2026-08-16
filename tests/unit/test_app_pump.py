@@ -24,7 +24,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QApplication, QMainWindow
 
 from projectionai.app import _drive_qt_loop
@@ -73,3 +73,27 @@ def test_pump_exits_when_main_window_closes(qapp: QApplication) -> None:
     asyncio.run(_drive_qt_loop(qapp, window))
 
     assert not window.isVisible()
+
+
+def test_pump_destroys_deferred_delete_objects(qapp: QApplication) -> None:
+    """Objects scheduled with deleteLater() must be destroyed by the pump.
+
+    A manual ``processEvents()`` pump does not deliver ``DeferredDelete``
+    events (they are only processed when control returns to an ``exec()``
+    loop), so the pump must flush them explicitly with
+    ``sendPostedEvents(None, QEvent.Type.DeferredDelete)``. Without that,
+    dialogs/menus/panels scheduled via ``deleteLater()`` leak until
+    process exit.
+    """
+    destroyed: list[bool] = []
+    victim = QObject()
+    victim.destroyed.connect(lambda *_: destroyed.append(True))
+    victim.deleteLater()
+
+    window = QMainWindow()
+    window.show()
+    QTimer.singleShot(200, window.close)
+
+    asyncio.run(_drive_qt_loop(qapp, window))
+
+    assert destroyed == [True]

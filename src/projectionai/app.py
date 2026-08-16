@@ -445,9 +445,18 @@ async def _drive_qt_loop(qapp: QApplication, window: QWidget) -> None:
     ``lastWindowClosed``) are never emitted by a manual ``processEvents``
     pump, so the loop watches the window's visibility instead — the
     application quits exactly when ``MainWindow.close()`` runs.
+
+    ``processEvents()`` also does not deliver ``DeferredDelete`` events,
+    so each iteration explicitly flushes them with
+    ``sendPostedEvents(None, QEvent.Type.DeferredDelete)``; otherwise
+    objects scheduled via ``deleteLater()`` would leak until process
+    exit.
     """
+    from PySide6.QtCore import QEvent
+
     while window.isVisible() and not qapp.closingDown():
         qapp.processEvents()
+        qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         await anyio.sleep(0.02)
 
 
