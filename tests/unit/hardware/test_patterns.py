@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from projectionai.hardware.patterns import (
@@ -9,6 +10,7 @@ from projectionai.hardware.patterns import (
     PatternKind,
     PatternSpec,
     get_pattern,
+    pattern_to_rgba,
 )
 
 
@@ -18,7 +20,16 @@ def _pixel(buf: bytes, width: int, x: int, y: int) -> tuple[int, int, int, int]:
     return (buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3])
 
 
-def test_all_eight_patterns_registered() -> None:
+SOLIDS: dict[PatternKind, tuple[int, int, int, int]] = {
+    PatternKind.BLACK: (0, 0, 0, 255),
+    PatternKind.WHITE: (255, 255, 255, 255),
+    PatternKind.RED: (0, 0, 255, 255),  # BGRA red
+    PatternKind.GREEN: (0, 255, 0, 255),
+    PatternKind.BLUE: (255, 0, 0, 255),  # BGRA blue
+}
+
+
+def test_all_patterns_registered() -> None:
     kinds = {spec.kind for spec in PATTERNS}
     assert kinds == set(PatternKind)
 
@@ -122,3 +133,42 @@ def test_safe_border_marks_edges() -> None:
     centre = _pixel(buf, 320, 160, 90)
     assert corner == (255, 255, 255, 255)
     assert centre == (0, 0, 0, 255)
+
+
+# -- Solid patterns --------------------------------------------------------------
+
+
+def test_solid_patterns_fill_every_pixel() -> None:
+    for kind, expected in SOLIDS.items():
+        buf = get_pattern(kind).render(64, 48)
+        assert len(buf) == 64 * 48 * 4
+        sampled = ((x, y) for x in range(0, 64, 7) for y in range(0, 48, 5))
+        assert all(_pixel(buf, 64, x, y) == expected for x, y in sampled)
+
+
+# -- pattern_to_rgba -------------------------------------------------------------
+
+
+def test_pattern_to_rgba_shape_and_dtype() -> None:
+    rgba = pattern_to_rgba(PatternKind.CHECKERBOARD, 320, 180)
+    assert rgba.shape == (180, 320, 4)
+    assert rgba.dtype == np.uint8
+    assert rgba.flags.writeable
+
+
+def test_pattern_to_rgba_reorders_bgra_to_rgba() -> None:
+    # The crosshair centre is red: BGRA (0, 0, 255, 255) -> RGBA (255, 0, 0, 255).
+    rgba = pattern_to_rgba(PatternKind.CROSSHAIR, 200, 200)
+    assert tuple(rgba[100, 100]) == (255, 0, 0, 255)
+
+
+def test_pattern_to_rgba_solid_colours() -> None:
+    for kind, bgra in SOLIDS.items():
+        rgba = pattern_to_rgba(kind, 8, 8)
+        b, g, r, a = bgra
+        assert tuple(rgba[4, 4]) == (r, g, b, a)
+
+
+def test_pattern_to_rgba_unknown_kind_raises() -> None:
+    with pytest.raises(KeyError):
+        pattern_to_rgba("not-a-pattern", 16, 16)  # type: ignore[arg-type]

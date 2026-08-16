@@ -18,10 +18,12 @@ from projectionai.hardware.errors import (
 from projectionai.hardware.events import (
     OutputArmed,
     OutputBlackout,
+    OutputFrozen,
     OutputLiveStarted,
     OutputPreviewChanged,
     OutputSessionEnded,
     OutputSessionStarted,
+    OutputUnfrozen,
 )
 from projectionai.hardware.output_manager import OutputManager, OutputState
 from projectionai.infrastructure.display.mock_provider import (
@@ -280,6 +282,128 @@ async def test_blackout_cuts_live_but_keeps_session(output_manager: object) -> N
     assert dm.live_output is None
     assert om.session is not None
     assert event_bus.assert_event_emitted(OutputBlackout) is None
+
+
+# -- Freeze ----------------------------------------------------------------------
+
+
+async def test_freeze_from_live_holds_route_and_emits(
+    output_manager: object,
+) -> None:
+    om, dm, _provider = output_manager  # type: ignore[misc]
+    event_bus = om.event_bus
+    assert isinstance(event_bus, FakeEventBus)
+    await om.begin_session()
+    await om.go_live()
+    await om.freeze()
+    await _flush()
+    assert om.state is OutputState.FREEZE
+    assert dm.live_output is not None  # route kept for instant resume
+    assert om.session is not None
+    assert om.session.live_display_id is not None
+    frozen = next(ev for ev in event_bus.emitted if isinstance(ev, OutputFrozen))
+    assert frozen.from_state is OutputState.LIVE
+
+
+async def test_freeze_from_blackout(output_manager: object) -> None:
+    om, dm, _provider = output_manager  # type: ignore[misc]
+    await om.begin_session()
+    await om.go_live()
+    await om.blackout()
+    await om.freeze()
+    await _flush()
+    assert om.state is OutputState.FREEZE
+    assert dm.live_output is None
+    frozen = next(ev for ev in om.event_bus.emitted if isinstance(ev, OutputFrozen))
+    assert frozen.from_state is OutputState.BLACKOUT
+
+
+async def test_freeze_requires_session(output_manager: object) -> None:
+    om, _dm, _provider = output_manager  # type: ignore[misc]
+    with pytest.raises(OutputSessionError):
+        await om.freeze()
+
+
+async def test_freeze_from_invalid_state_raises(output_manager: object) -> None:
+    om, _dm, _provider = output_manager  # type: ignore[misc]
+    await om.begin_session()  # IDLE
+    with pytest.raises(OutputSessionError, match="Cannot freeze"):
+        await om.freeze()
+    await om.set_live_target("disp-2")
+    await om.arm()  # ARMED
+    with pytest.raises(OutputSessionError, match="Cannot freeze"):
+        await om.freeze()
+    assert om.state is OutputState.ARMED  # unchanged
+
+
+async def test_double_freeze_raises(output_manager: object) -> None:
+    om, _dm, _provider = output_manager  # type: ignore[misc]
+    await om.begin_session()
+    await om.go_live()
+    await om.freeze()
+    with pytest.raises(OutputSessionError, match="Cannot freeze"):
+        await om.freeze()
+
+
+async def test_unfreeze_restores_live(output_manager: object) -> None:
+    om, dm, _provider = output_manager  # type: ignore[misc]
+    event_bus = om.event_bus
+    assert isinstance(event_bus, FakeEventBus)
+    await om.begin_session()
+    await om.go_live()
+    await om.freeze()
+    await om.unfreeze()
+    await _flush()
+    assert om.state is OutputState.LIVE
+    assert om.is_live
+    assert dm.live_output is not None
+    unfrozen = next(ev for ev in event_bus.emitted if isinstance(ev, OutputUnfrozen))
+    assert unfrozen.restored_state is OutputState.LIVE
+
+
+async def test_unfreeze_from_blackout_restores_blackout(
+    output_manager: object,
+) -> None:
+    om, _dm, _provider = output_manager  # type: ignore[misc]
+    await om.begin_session()
+    await om.go_live()
+    await om.blackout()
+    await om.freeze()
+    await om.unfreeze()
+    await _flush()
+    assert om.state is OutputState.BLACKOUT
+    unfrozen = next(ev for ev in om.event_bus.emitted if isinstance(ev, OutputUnfrozen))
+    assert unfrozen.restored_state is OutputState.BLACKOUT
+
+
+async def test_unfreeze_without_freeze_raises(output_manager: object) -> None:
+    om, _dm, _provider = output_manager  # type: ignore[misc]
+    await om.begin_session()
+    await om.go_live()
+    with pytest.raises(OutputSessionError, match="not frozen"):
+        await om.unfreeze()
+    assert om.state is OutputState.LIVE  # unchanged
+
+
+async def test_unfreeze_requires_session(output_manager: object) -> None:
+    om, _dm, _provider = output_manager  # type: ignore[misc]
+    with pytest.raises(OutputSessionError):
+        await om.unfreeze()
+
+
+async def test_end_session_while_frozen_cleans_up(output_manager: object) -> None:
+    om, dm, _provider = output_manager  # type: ignore[misc]
+    await om.begin_session()
+    await om.go_live()
+    await om.freeze()
+    await om.end_session()
+    await _flush()
+    assert om.session is None
+    assert om.state is OutputState.IDLE
+    assert dm.live_output is None
+    assert dm.preview_output is None
+    with pytest.raises(OutputSessionError):
+        await om.unfreeze()  # frozen state fully cleared
 
 
 # -- Safe switching -------------------------------------------------------------

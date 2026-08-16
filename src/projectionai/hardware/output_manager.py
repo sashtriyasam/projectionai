@@ -35,10 +35,12 @@ from projectionai.hardware.errors import (
 from projectionai.hardware.events import (
     OutputArmed,
     OutputBlackout,
+    OutputFrozen,
     OutputLiveStarted,
     OutputPreviewChanged,
     OutputSessionEnded,
     OutputSessionStarted,
+    OutputUnfrozen,
 )
 from projectionai.hardware.models import OutputWindow
 from projectionai.managers import Manager
@@ -54,6 +56,7 @@ class OutputState(StrEnum):
     ARMED = "armed"
     LIVE = "live"
     BLACKOUT = "blackout"
+    FREEZE = "freeze"
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,7 @@ class OutputManager(Manager):
         self._validator = validator or DisplayValidator()
         self._session: OutputSession | None = None
         self._history: list[OutputSession] = []
+        self._pre_freeze_state: OutputState | None = None
         self._renderer_ready_provider = renderer_ready_provider
         self._window_available_provider = window_available_provider
 
@@ -164,6 +168,7 @@ class OutputManager(Manager):
             return
         self._record(session)  # final snapshot of the session before clearing
         self._session = None
+        self._pre_freeze_state = None
         self._display_manager.set_live_output(None)
         self._display_manager.set_preview_output(None)
         self._emit_nowait(OutputSessionEnded(session.session_id))
@@ -270,6 +275,67 @@ class OutputManager(Manager):
             )
         )
         self._emit_nowait(OutputBlackout(session.session_id))
+
+    async def freeze(self) -> None:
+        """Hold the current frame (state ``FREEZE``).
+
+        Only valid while live or blacked out; the live route (when set)
+        is kept so unfreezing resumes instantly. The output window is
+        responsible for holding the last rendered frame.
+
+        Raises:
+            OutputSessionError: When the session is not live/blacked out
+                (the state is left unchanged).
+        """
+        self._require_initialized()
+        session = self._require_session()
+        if session.state not in (OutputState.LIVE, OutputState.BLACKOUT):
+            raise OutputSessionError(
+                f"Cannot freeze from {session.state.value!r} — "
+                "only live or blackout output can be frozen."
+            )
+        self._pre_freeze_state = session.state
+        self._record(
+            OutputSession(
+                session_id=session.session_id,
+                state=OutputState.FREEZE,
+                preview_display_id=session.preview_display_id,
+                live_display_id=session.live_display_id,
+                created_at=session.created_at,
+                updated_at=datetime.now(UTC),
+            )
+        )
+        self._emit_nowait(OutputFrozen(session.session_id, session.state))
+        _logger.info("Output frozen: %s", session.session_id)
+
+    async def unfreeze(self) -> None:
+        """Resume from ``FREEZE`` to the state it was frozen from.
+
+        Raises:
+            OutputSessionError: When the session is not frozen (the
+                state is left unchanged).
+        """
+        self._require_initialized()
+        session = self._require_session()
+        if session.state is not OutputState.FREEZE:
+            raise OutputSessionError(
+                f"Cannot unfreeze from {session.state.value!r} — "
+                "the session is not frozen."
+            )
+        restored = self._pre_freeze_state or OutputState.LIVE
+        self._pre_freeze_state = None
+        self._record(
+            OutputSession(
+                session_id=session.session_id,
+                state=restored,
+                preview_display_id=session.preview_display_id,
+                live_display_id=session.live_display_id,
+                created_at=session.created_at,
+                updated_at=datetime.now(UTC),
+            )
+        )
+        self._emit_nowait(OutputUnfrozen(session.session_id, restored))
+        _logger.info("Output unfrozen: %s", session.session_id)
 
     # -- Safe switch helper ---------------------------------------------------
 
