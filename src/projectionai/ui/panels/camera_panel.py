@@ -242,10 +242,23 @@ class CameraPanel(ViewModelPanel):
         vm = self._viewmodel
         if vm is None:
             return
-        if getattr(vm, "preview_camera_id", None) is None:
+        preview_id = getattr(vm, "preview_camera_id", None)
+        if preview_id is None:
             self._preview_timer.stop()
             self._reset_preview_display()
         else:
+            # Camera switched: the previous camera's frame and frame
+            # number are stale, so drop them before the new camera's
+            # frames arrive. Otherwise the first frame of the new
+            # camera is skipped when its frame number coincides with
+            # the previous camera's last rendered one.
+            current_id = (
+                self._current_frame.camera_id
+                if self._current_frame is not None
+                else None
+            )
+            if current_id != preview_id:
+                self._reset_preview_display()
             self._preview_timer.start()
         self._update_preview_info()
 

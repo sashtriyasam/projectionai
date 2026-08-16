@@ -248,6 +248,36 @@ class TestPreview:
         assert vm.rendered == [3]
         assert panel.preview_label.pixmap().cacheKey() == first
 
+    def test_camera_switch_resets_frame_tracking_when_numbers_coincide(
+        self, qapp: QApplication
+    ) -> None:
+        """Switching preview cameras must render the new camera's first
+        frame even when its frame number equals the previous camera's last
+        rendered one — stale tracking state must not skip it."""
+        vm = _FakeDevicesViewModel(
+            [_camera("cam-0", "Front"), _camera("cam-1", "Rear")],
+            set(),
+            preview_id="cam-0",
+        )
+        vm.latest = _frame("cam-0", 5)
+        panel = CameraPanel()
+        panel.bind_viewmodel(vm)
+        panel._render_preview_frame()
+        assert vm.rendered == [5]
+        first = panel.preview_label.pixmap().cacheKey()
+
+        # Switch to cam-1; its first frame reuses frame number 5.
+        vm.preview_camera_id = "cam-1"
+        vm.latest = _frame("cam-1", 5, value=99)
+        panel._sync_preview_ui()
+        panel._render_preview_frame()
+
+        assert vm.rendered == [5, 5]
+        assert panel.preview_label.pixmap().cacheKey() != first
+        assert panel._current_frame is not None
+        assert panel._current_frame.camera_id == "cam-1"
+        assert "LIVE · cam-1" in panel.preview_info_label.text()
+
     def test_render_without_preview_is_noop(self, qapp: QApplication) -> None:
         vm = _FakeDevicesViewModel([_camera("cam-0", "Front")], set())
         vm.latest = _frame("cam-0", 1)
