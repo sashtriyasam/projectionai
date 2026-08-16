@@ -185,9 +185,29 @@ class CameraProviderFactory:
     def create(cls, name: str, **kwargs: object) -> CameraProvider:
         """Create a provider instance by registered name."""
         if name not in cls._registry:
+            cls._ensure_builtin_providers()
+        if name not in cls._registry:
             msg = f"Unknown camera provider: {name!r}. Available: {list(cls._registry)}"
             raise ValueError(msg)
         return cls._registry[name](**kwargs)
+
+    @classmethod
+    def _ensure_builtin_providers(cls) -> None:
+        """Register the built-in ``mock``/``opencv`` providers on demand.
+
+        Importing the provider modules registers their classes with this
+        factory, so ``create()`` works regardless of whether the
+        ``infrastructure.camera`` package was imported first.
+        """
+        from projectionai.infrastructure.camera.mock_camera import (
+            MockCameraProvider,
+        )
+        from projectionai.infrastructure.camera.opencv_camera import (
+            OpenCVCameraProvider,
+        )
+
+        cls.register("mock", MockCameraProvider)
+        cls.register("opencv", OpenCVCameraProvider)
 
     @classmethod
     def available(cls) -> tuple[str, ...]:
