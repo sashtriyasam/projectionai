@@ -474,6 +474,27 @@ class TestFreeze:
         assert window.patterns == []
         assert window.blackouts == 1
 
+    async def test_unfreeze_after_new_session_does_not_restore_stale_pattern(
+        self, qapp: Any
+    ) -> None:
+        hardware = _FakeHardware((_projector("p1", 0), _projector("p2", 1)))
+        vm = _make_vm(hardware)
+        window = _FakeWindow()
+        vm.attach_output_window(window)
+
+        # Session 1: show a pattern, then end the session.
+        await vm.test_pattern("p1", PatternKind.COLOUR_BARS)
+        await vm.exit_output()
+
+        # Session 2: starts without test_pattern; unfreeze must not restore it.
+        await vm.select_preview("p2")
+        await vm.freeze()
+        await vm.unfreeze()
+
+        assert window.patterns == [PatternKind.COLOUR_BARS]
+        assert window.blackouts == 1
+        assert vm._last_pattern is None
+
     async def test_toggle_freeze_cycles(self, qapp: Any) -> None:
         hardware = _FakeHardware((_projector("p1", 0),))
         hardware.session = _FakeSession(OutputState.LIVE, live_display_id="p1")

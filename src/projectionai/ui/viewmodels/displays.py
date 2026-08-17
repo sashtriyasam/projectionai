@@ -186,7 +186,7 @@ class DisplaysViewModel(Observable):
 
     async def begin_session(self, preview_display_id: str | None = None) -> None:
         """Start a new output session."""
-        await self._hardware.begin_output_session(preview_display_id)
+        await self._start_session(preview_display_id)
         self._notify()
 
     async def end_session(self) -> None:
@@ -228,7 +228,7 @@ class DisplaysViewModel(Observable):
         """Make *display_id* the preview target (starts a session if needed)."""
         self._hardware.get_display(display_id)  # raises when unknown
         if self._hardware.output_session is None:
-            await self._hardware.begin_output_session(display_id)
+            await self._start_session(display_id)
         else:
             await self._hardware.set_output_preview(display_id)
         self._notify()
@@ -244,7 +244,7 @@ class DisplaysViewModel(Observable):
         self._hardware.get_display(display_id)  # raises when unknown
         window = self._require_window()
         if self._hardware.output_session is None:
-            await self._hardware.begin_output_session()
+            await self._start_session()
         report = await self._hardware.switch_live_output(display_id, window)
         self._last_report = report
         self._notify()
@@ -262,7 +262,7 @@ class DisplaysViewModel(Observable):
         window = self._require_window()
         self._check_live_conflict(display_id)
         if self._hardware.output_session is None:
-            await self._hardware.begin_output_session(display_id)
+            await self._start_session(display_id)
         self._hardware.move_window_to(display_id, window, fullscreen=True)
         self._notify()
 
@@ -272,7 +272,7 @@ class DisplaysViewModel(Observable):
         window = self._require_window()
         self._check_live_conflict(display_id)
         if self._hardware.output_session is None:
-            await self._hardware.begin_output_session(display_id)
+            await self._start_session(display_id)
         self._hardware.move_window_to(display_id, window, fullscreen=True)
         window.set_pattern(pattern)
         self._last_pattern = pattern
@@ -288,6 +288,7 @@ class DisplaysViewModel(Observable):
     async def exit_output(self) -> None:
         """End the session and restore/hide the output window."""
         await self._hardware.end_output_session()
+        self._last_pattern = None
         if self._window is not None:
             self._window.showNormal()
             self._window.hide()
@@ -343,6 +344,11 @@ class DisplaysViewModel(Observable):
         if self._window is None:
             raise OutputSessionError("Output window unavailable — output is disabled.")
         return self._window
+
+    async def _start_session(self, preview_display_id: str | None = None) -> None:
+        """Begin a new output session; session-scoped state must not carry over."""
+        await self._hardware.begin_output_session(preview_display_id)
+        self._last_pattern = None
 
     def _require_fullscreen(self, display_id: str) -> DisplayInfo:
         display = self._hardware.get_display(display_id)  # raises when unknown
