@@ -127,8 +127,9 @@ real hardware and is not covered in CI.
 
 - `display.capabilities.supports_fullscreen` gates fullscreen moves; a
   provider that cannot report it will reject the action.
-- Freeze/unfreeze restores the last test pattern (or black, if the
-  session was frozen while blacked out); camera/AI content routing to
-  the output window is a future phase.
+- Freeze/unfreeze restores the last test pattern, or blacks the output
+  window when the session was frozen while blacked out or when no test
+  pattern is set; camera/AI content routing to the output window is a
+  future phase.
 - Multi-projector simultaneous output is out of scope (one live
   display per session; switching requires exiting or switching live).
