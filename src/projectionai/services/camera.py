@@ -185,29 +185,35 @@ class CameraProviderFactory:
     def create(cls, name: str, **kwargs: object) -> CameraProvider:
         """Create a provider instance by registered name."""
         if name not in cls._registry:
-            cls._ensure_builtin_providers()
+            cls._ensure_builtin_provider(name)
         if name not in cls._registry:
             msg = f"Unknown camera provider: {name!r}. Available: {list(cls._registry)}"
             raise ValueError(msg)
         return cls._registry[name](**kwargs)
 
     @classmethod
-    def _ensure_builtin_providers(cls) -> None:
-        """Register the built-in ``mock``/``opencv`` providers on demand.
+    def _ensure_builtin_provider(cls, name: str) -> None:
+        """Register the built-in provider for *name* on demand.
 
-        Importing the provider modules registers their classes with this
-        factory, so ``create()`` works regardless of whether the
-        ``infrastructure.camera`` package was imported first.
+        Only the requested provider module is imported — requesting
+        ``"mock"`` never loads OpenCV — and an existing registration
+        (custom, or from a previously imported module) is never
+        overwritten.
         """
-        from projectionai.infrastructure.camera.mock_camera import (
-            MockCameraProvider,
-        )
-        from projectionai.infrastructure.camera.opencv_camera import (
-            OpenCVCameraProvider,
-        )
+        if name in cls._registry:
+            return
+        if name == "mock":
+            from projectionai.infrastructure.camera.mock_camera import (
+                MockCameraProvider,
+            )
 
-        cls.register("mock", MockCameraProvider)
-        cls.register("opencv", OpenCVCameraProvider)
+            cls._registry[name] = MockCameraProvider
+        elif name == "opencv":
+            from projectionai.infrastructure.camera.opencv_camera import (
+                OpenCVCameraProvider,
+            )
+
+            cls._registry[name] = OpenCVCameraProvider
 
     @classmethod
     def available(cls) -> tuple[str, ...]:

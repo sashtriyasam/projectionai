@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 
@@ -86,7 +87,15 @@ class OpenCVCamera(Camera):
 
     async def capture(self) -> Frame:
         cap = self._require_cap()
-        ok, frame = await asyncio.to_thread(cap.read)
+        read_future = asyncio.get_running_loop().run_in_executor(None, cap.read)
+        try:
+            ok, frame = await asyncio.shield(read_future)
+        except asyncio.CancelledError:
+            # Cancelling the shield leaves the read future running; joining
+            # it here keeps close() from releasing the capture mid-read.
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await read_future
+            raise
         if not ok or frame is None:
             if not cap.isOpened():
                 raise CameraDisconnectedError(

@@ -278,6 +278,44 @@ class TestPreview:
         assert panel._current_frame.camera_id == "cam-1"
         assert "LIVE · cam-1" in panel.preview_info_label.text()
 
+    def test_restart_preview_renders_colliding_frame_number(
+        self, qapp: QApplication
+    ) -> None:
+        vm = _FakeDevicesViewModel(
+            [_camera("cam-0", "Front")], set(), preview_id="cam-0"
+        )
+        vm.latest = _frame("cam-0", 1)
+        panel = CameraPanel()
+        panel.bind_viewmodel(vm)
+        panel._render_preview_frame()
+        assert vm.rendered == [1]
+        first = panel.preview_label.pixmap().cacheKey()
+
+        # Stop and restart the same camera: the new run restarts frame
+        # numbering at 1, which collides with the previous run's last
+        # rendered frame — the restarted preview must render it anyway.
+        panel._stop_preview()
+        vm.preview_camera_id = "cam-0"
+        vm.latest = _frame("cam-0", 1, value=99)
+        panel.camera_list.setCurrentRow(0)
+        panel._start_preview()
+        panel._render_preview_frame()
+
+        assert vm.rendered == [1, 1]
+        assert panel.preview_label.pixmap().cacheKey() != first
+        assert panel._current_frame is not None
+        assert panel._current_frame.frame_number == 1
+
+    def test_preview_error_shown_in_preview_info(self, qapp: QApplication) -> None:
+        vm = _FakeDevicesViewModel(
+            [_camera("cam-0", "Front")], set(), preview_id="cam-0"
+        )
+        vm.preview_error_msg = "Frame capture failed"
+        panel = CameraPanel()
+        panel.bind_viewmodel(vm)
+        panel._update_preview_info()
+        assert panel.preview_info_label.text() == "ERROR · Frame capture failed"
+
     def test_render_without_preview_is_noop(self, qapp: QApplication) -> None:
         vm = _FakeDevicesViewModel([_camera("cam-0", "Front")], set())
         vm.latest = _frame("cam-0", 1)

@@ -232,6 +232,7 @@ class MainWindow(QMainWindow):
         self._panels: dict[str, ViewModelPanel] = {}
         self._project_vm: ProjectViewModel | None = None
         self._output_vm: OutputViewModel | None = None
+        self._devices_vm: DevicesViewModel | None = None
         self._calibration_vm: CalibrationViewModel | None = None
         self._viewport: MainViewport | None = None
         self._status_bar: StatusBar | None = None
@@ -257,6 +258,7 @@ class MainWindow(QMainWindow):
             self._app.project, output=output_vm
         )
         devices_vm = DevicesViewModel(self._app.cameras)
+        self._devices_vm = devices_vm
         displays_vm = DisplaysViewModel(self._app.hardware)
         timeline_model = TimelineModel(fps=30.0, duration_frames=3600)
         scenes_vm = ScenesViewModel(self._app.scenes)
@@ -573,5 +575,7 @@ class MainWindow(QMainWindow):
             self._actions.shutdown()
         if self._output_vm is not None:
             self._output_vm.close()
+        if self._devices_vm is not None:
+            self._devices_vm.shutdown()
         _logger.debug("Main window closing")
         super().closeEvent(event)

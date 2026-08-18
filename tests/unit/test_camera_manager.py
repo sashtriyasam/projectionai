@@ -10,12 +10,14 @@ import numpy as np
 import pytest
 
 from projectionai.core.errors import (
+    CameraCaptureError,
     CameraDisconnectedError,
     CameraNotFoundError,
     CameraUnavailableError,
     ManagerNotInitializedError,
 )
 from projectionai.core.events import (
+    CameraCaptureFailed,
     CameraClosed,
     CameraDisconnected,
     CameraFrameCaptured,
@@ -76,6 +78,8 @@ async def job_manager(event_bus: FakeEventBus) -> AsyncIterator[JobManager]:
 
 
 def test_factory_has_registered_providers() -> None:
+    CameraProviderFactory.create("mock")
+    CameraProviderFactory.create("opencv")
     available = CameraProviderFactory.available()
     assert "mock" in available
     assert "opencv" in available
@@ -186,17 +190,83 @@ async def test_disconnect_emits_event_and_stops_loop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     camera = await camera_manager.open_camera("mock-0")
+    original_capture = camera.capture
+    fail = {"value": True}
 
-    async def _boom() -> Frame:
-        raise CameraDisconnectedError("device unplugged")
+    async def _flaky() -> Frame:
+        if fail["value"]:
+            raise CameraDisconnectedError("device unplugged")
+        return await original_capture()
 
-    monkeypatch.setattr(camera, "capture", _boom)
+    monkeypatch.setattr(camera, "capture", _flaky)
     await camera_manager.start_capture("mock-0", fps=30)
     await _wait_for(
         lambda: any(isinstance(ev, CameraDisconnected) for ev in event_bus.emitted)
     )
-    await _wait_for(lambda: "mock-0" not in camera_manager._capture_tasks)
     event_bus.assert_event_emitted(CameraDisconnected)
+    # The loop has exited; restarting must start a fresh loop (regression:
+    # a finished-but-not-yet-popped task used to block the restart).
+    fail["value"] = False
+    await camera_manager.start_capture("mock-0", fps=30)
+    frames_before = _frame_event_count(event_bus)
+    await _wait_for(lambda: _frame_event_count(event_bus) >= frames_before + 2)
+    await camera_manager.stop_capture("mock-0")
+
+
+async def test_capture_error_emits_failed_event_and_recovers(
+    camera_manager: CameraManager,
+    event_bus: FakeEventBus,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    camera = await camera_manager.open_camera("mock-0")
+    original_capture = camera.capture
+    fail = {"value": True}
+
+    async def _flaky() -> Frame:
+        if fail["value"]:
+            raise CameraCaptureError("sensor hiccup")
+        return await original_capture()
+
+    monkeypatch.setattr(camera, "capture", _flaky)
+    await camera_manager.start_capture("mock-0", fps=30)
+    await _wait_for(
+        lambda: any(isinstance(ev, CameraCaptureFailed) for ev in event_bus.emitted)
+    )
+    failed = [ev for ev in event_bus.emitted if isinstance(ev, CameraCaptureFailed)]
+    assert failed[-1].camera_id == "mock-0"
+    assert "sensor hiccup" in failed[-1].reason
+    fail["value"] = False
+    frames_before = _frame_event_count(event_bus)
+    await _wait_for(lambda: _frame_event_count(event_bus) >= frames_before + 2)
+    await camera_manager.stop_capture("mock-0")
+
+
+async def test_concurrent_start_capture_single_loop(
+    camera_manager: CameraManager,
+    event_bus: FakeEventBus,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two concurrent start_capture calls must not spawn two loops.
+
+    A slow set_fps widens the interleaving window so both calls reach
+    the in-flight check before either registers its task.
+    """
+    camera = await camera_manager.open_camera("mock-0")
+
+    async def _slow_set_fps(fps: int) -> bool:
+        await asyncio.sleep(0.05)
+        return True
+
+    monkeypatch.setattr(camera, "set_fps", _slow_set_fps)
+    await asyncio.gather(
+        camera_manager.start_capture("mock-0", fps=30),
+        camera_manager.start_capture("mock-0", fps=30),
+    )
+    await _wait_for(lambda: _frame_event_count(event_bus) >= 2)
+    await camera_manager.stop_capture("mock-0")
+    count = _frame_event_count(event_bus)
+    await asyncio.sleep(0.15)
+    assert _frame_event_count(event_bus) == count
 
 
 # -- Frame subscribers ------------------------------------------------------
@@ -321,6 +391,8 @@ async def test_snapshot_runs_as_job(
     )
     await manager.initialize()
     await manager.open_camera("mock-0")
+    received: list[Frame] = []
+    manager.subscribe_frames("mock-0", received.append)
 
     info = manager.snapshot("mock-0")
     assert info is not None
@@ -336,6 +408,9 @@ async def test_snapshot_runs_as_job(
     assert isinstance(completed.result, Frame)
     assert completed.result.camera_id == "mock-0"
     event_bus.assert_events_emitted(JobQueued, JobStarted, JobCompleted)
+    # One-shot snapshots do not stream to frame subscribers.
+    assert received == []
+    assert not any(isinstance(ev, CameraFrameCaptured) for ev in event_bus.emitted)
 
 
 # -- Shutdown ---------------------------------------------------------------

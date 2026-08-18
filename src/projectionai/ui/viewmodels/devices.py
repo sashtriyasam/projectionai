@@ -23,7 +23,12 @@ from projectionai.core.errors import (
     CameraOpenError,
     CameraUnavailableError,
 )
-from projectionai.core.events import CameraClosed, CameraDisconnected, Event
+from projectionai.core.events import (
+    CameraCaptureFailed,
+    CameraClosed,
+    CameraDisconnected,
+    Event,
+)
 from projectionai.managers.camera_manager import CameraManager
 from projectionai.services.camera import CameraInfo, Frame
 from projectionai.ui.viewmodels.observable import Observable
@@ -82,6 +87,9 @@ class DevicesViewModel(Observable):
             CameraDisconnected, self._on_camera_disconnected
         )
         self._cameras.event_bus.subscribe(CameraClosed, self._on_camera_closed)
+        self._cameras.event_bus.subscribe(
+            CameraCaptureFailed, self._on_camera_capture_failed
+        )
 
     # -- Cameras --------------------------------------------------------------
 
@@ -152,7 +160,7 @@ class DevicesViewModel(Observable):
         return self._preview_camera_id == camera_id
 
     def preview_error(self) -> str | None:
-        """Friendly message from the last failed preview start, if any."""
+        """Friendly message for the latest preview failure, if any."""
         return self._preview_error
 
     def latest_frame(self) -> Frame | None:
@@ -204,6 +212,7 @@ class DevicesViewModel(Observable):
         """Keep only the newest frame; count unrendered ones as dropped."""
         if self._preview_camera_id is None:
             return
+        self._preview_error = None
         if (
             self._latest_frame is not None
             and self._latest_frame.frame_number != self._rendered_frame_number
@@ -234,12 +243,33 @@ class DevicesViewModel(Observable):
             self._preview_error = None
             await self._teardown_preview(event.camera_id)
 
+    async def _on_camera_capture_failed(self, event: Event) -> None:
+        if (
+            isinstance(event, CameraCaptureFailed)
+            and event.camera_id == self._preview_camera_id
+        ):
+            self._preview_error = _friendly_camera_error(
+                CameraCaptureError(event.reason)
+            )
+            self._notify()
+
     async def _teardown_preview(self, camera_id: str) -> None:
         """Clear preview state after a close/disconnect (capture already stopped)."""
         self._preview_camera_id = None
         self._cameras.unsubscribe_frames(camera_id, self._on_frame)
         self._reset_preview_state()
         self._notify()
+
+    def shutdown(self) -> None:
+        """Unsubscribe from camera events (idempotent).
+
+        Called by the application shell during teardown so this view
+        model stops reacting to camera events once the UI is gone.
+        """
+        bus = self._cameras.event_bus
+        bus.unsubscribe(CameraDisconnected, self._on_camera_disconnected)
+        bus.unsubscribe(CameraClosed, self._on_camera_closed)
+        bus.unsubscribe(CameraCaptureFailed, self._on_camera_capture_failed)
 
     # -- Projectors (shell-injected) ------------------------------------------
 

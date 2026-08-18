@@ -401,6 +401,14 @@ class CameraDisconnected(Event):
 
 
 @dataclass(frozen=True)
+class CameraCaptureFailed(Event):
+    """Emitted when the continuous capture loop hits a recoverable error."""
+
+    camera_id: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class CameraPropertyChanged(Event):
     """Emitted when a camera property (focus, exposure, …) changes."""
 

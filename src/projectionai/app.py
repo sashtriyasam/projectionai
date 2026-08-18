@@ -485,7 +485,11 @@ async def _run_qt(
 
     await _drive_qt_loop(qapp, window)
 
-    await app.shutdown()
+    try:
+        await app.shutdown()
+    except Exception:
+        _logger.critical("Application shutdown failed", exc_info=True)
+        return 1
     return 0
 
 

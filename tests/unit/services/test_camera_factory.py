@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from projectionai.infrastructure.camera.mock_camera import MockCameraProvider
@@ -13,12 +15,29 @@ def test_create_mock_registers_builtins_lazily(
 ) -> None:
     """create() works with an empty registry — built-ins load on demand."""
     monkeypatch.setattr(CameraProviderFactory, "_registry", {})
+    assert "opencv" not in CameraProviderFactory.available()
 
     provider = CameraProviderFactory.create("mock")
 
     assert isinstance(provider, MockCameraProvider)
     assert "mock" in CameraProviderFactory.available()
-    assert "opencv" in CameraProviderFactory.available()
+    assert "opencv" not in CameraProviderFactory.available()
+
+
+def test_create_mock_does_not_import_opencv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Requesting the mock provider must never load the OpenCV module."""
+    monkeypatch.delitem(
+        sys.modules,
+        "projectionai.infrastructure.camera.opencv_camera",
+        raising=False,
+    )
+    monkeypatch.setattr(CameraProviderFactory, "_registry", {})
+
+    CameraProviderFactory.create("mock")
+
+    assert "projectionai.infrastructure.camera.opencv_camera" not in sys.modules
 
 
 def test_create_opencv_registers_default_provider(

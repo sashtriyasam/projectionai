@@ -21,6 +21,7 @@ from projectionai.core.errors import (
     CameraNotFoundError,
 )
 from projectionai.core.events import (
+    CameraCaptureFailed,
     CameraClosed,
     CameraDisconnected,
     CameraFrameCaptured,
@@ -153,33 +154,70 @@ class CameraManager(Manager):
     async def start_capture(self, camera_id: str, fps: int = 30) -> None:
         """Start a continuous capture loop emitting ``CameraFrameCaptured``."""
         self._require_initialized()
-        if camera_id in self._capture_tasks:
+        if self._is_capturing(camera_id):
             return
         camera = await self.open_camera(camera_id)
         await camera.set_fps(fps)
+        # Re-check after the awaits: a concurrent start_capture may have
+        # registered a task while this coroutine was suspended.
+        if self._is_capturing(camera_id):
+            return
         interval = 1.0 / max(fps, 1)
         task = asyncio.create_task(
             self._capture_loop(camera_id, camera, interval),
             name=f"camera-capture-{camera_id}",
         )
         self._capture_tasks[camera_id] = task
-        task.add_done_callback(lambda _t: self._capture_tasks.pop(camera_id, None))
+        task.add_done_callback(self._make_capture_done_callback(camera_id))
 
     async def stop_capture(self, camera_id: str) -> None:
         """Stop the continuous capture loop for *camera_id* (no-op if idle)."""
         task = self._capture_tasks.pop(camera_id, None)
-        if task is None:
-            return
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        # A start_capture that was already in flight may have registered a
+        # new task while we were waiting; the stop wins either way.
+        task = self._capture_tasks.pop(camera_id, None)
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    def _is_capturing(self, camera_id: str) -> bool:
+        """Return True when a live capture task is registered for *camera_id*."""
+        task = self._capture_tasks.get(camera_id)
+        return task is not None and not task.done()
+
+    def _make_capture_done_callback(
+        self, camera_id: str
+    ) -> Callable[[asyncio.Task[None]], None]:
+        """Return an identity-safe done callback for a capture task.
+
+        The callback only removes the entry when it still refers to the
+        completing task, so a stale task finishing late can never pop a
+        newer task registered for the same camera.
+        """
+
+        def _done(task: asyncio.Task[None]) -> None:
+            if self._capture_tasks.get(camera_id) is task:
+                self._capture_tasks.pop(camera_id, None)
+
+        return _done
 
     # -- Frame subscribers ----------------------------------------------------
 
     def subscribe_frames(
         self, camera_id: str, handler: Callable[[Frame], None]
     ) -> None:
-        """Register *handler* to receive every captured frame for *camera_id*.
+        """Register *handler* to receive frames captured for *camera_id*.
+
+        Handlers receive frames produced by the continuous capture loop
+        (:meth:`start_capture`) and by direct single-frame captures
+        (:meth:`capture_frame`). One-shot snapshots taken through
+        :meth:`snapshot` do not stream to subscribers — they capture a
+        single frame for the caller only.
 
         Handlers run synchronously on the event-loop thread for each
         captured frame. A failing handler is logged and skipped — it does
@@ -261,8 +299,11 @@ class CameraManager(Manager):
                 self._emit_nowait(CameraDisconnected(camera_id=camera_id))
                 _logger.warning("Camera %s disconnected: %s", camera_id, exc)
                 break
-            except CameraError:
+            except CameraError as exc:
                 _logger.warning("Capture error on camera %s", camera_id, exc_info=True)
+                self._emit_nowait(
+                    CameraCaptureFailed(camera_id=camera_id, reason=str(exc))
+                )
                 await asyncio.sleep(interval)
                 continue
             self._emit_nowait(
