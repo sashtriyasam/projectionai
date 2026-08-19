@@ -211,10 +211,11 @@ class CameraPanel(ViewModelPanel):
         vm = self._viewmodel
         if vm is None:
             return
-        if getattr(vm, "preview_camera_id", None) is None:
+        preview_id = getattr(vm, "preview_camera_id", None)
+        if preview_id is None:
             return
         frame = getattr(vm, "latest_frame", lambda: None)()
-        if frame is None:
+        if frame is None or frame.camera_id != preview_id:
             return
         if (
             frame.camera_id == self._last_rendered_camera

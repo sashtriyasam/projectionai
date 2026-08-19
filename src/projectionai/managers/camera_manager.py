@@ -19,6 +19,7 @@ from projectionai.core.errors import (
     CameraDisconnectedError,
     CameraError,
     CameraNotFoundError,
+    ManagerNotInitializedError,
 )
 from projectionai.core.events import (
     CameraCaptureFailed,
@@ -62,6 +63,8 @@ class CameraManager(Manager):
         self._cameras: dict[str, Camera] = {}
         self._capture_tasks: dict[str, asyncio.Task[None]] = {}
         self._frame_subscribers: dict[str, list[Callable[[Frame], None]]] = {}
+        self._camera_locks: dict[str, asyncio.Lock] = {}
+        self._shutting_down: bool = False
 
     # -- Enumeration --------------------------------------------------------
 
@@ -88,6 +91,12 @@ class CameraManager(Manager):
     async def open_camera(self, camera_id: str) -> Camera:
         """Open a camera and emit ``CameraOpened``. Idempotent."""
         self._require_initialized()
+        async with self._camera_lock(camera_id):
+            self._require_lifecycle()
+            return await self._open_camera_locked(camera_id)
+
+    async def _open_camera_locked(self, camera_id: str) -> Camera:
+        """Open *camera_id*; the caller must hold its per-camera lock."""
         camera = self._cameras.get(camera_id)
         if camera is not None and camera.is_open:
             return camera
@@ -95,6 +104,11 @@ class CameraManager(Manager):
         if provider is None:
             raise CameraError("No camera provider is available")
         camera = await provider.open(camera_id)
+        if self._shutting_down or not self._initialized:
+            await camera.close()
+            raise ManagerNotInitializedError(
+                f"{type(self).__name__} is not initialized"
+            )
         self._cameras[camera_id] = camera
         self._camera_infos[camera_id] = camera.info
         self._emit_nowait(CameraOpened(camera_id=camera_id, name=camera.info.name))
@@ -104,12 +118,13 @@ class CameraManager(Manager):
     async def close_camera(self, camera_id: str) -> None:
         """Stop capture and close a camera, emitting ``CameraClosed``."""
         await self.stop_capture(camera_id)
-        camera = self._cameras.pop(camera_id, None)
-        self._frame_subscribers.pop(camera_id, None)
-        if camera is None:
-            return
-        await camera.close()
-        self._emit_nowait(CameraClosed(camera_id=camera_id))
+        async with self._camera_lock(camera_id):
+            camera = self._cameras.pop(camera_id, None)
+            self._frame_subscribers.pop(camera_id, None)
+            if camera is None:
+                return
+            await camera.close()
+            self._emit_nowait(CameraClosed(camera_id=camera_id))
 
     def is_open(self, camera_id: str) -> bool:
         """Return whether *camera_id* is currently open."""
@@ -154,41 +169,55 @@ class CameraManager(Manager):
     async def start_capture(self, camera_id: str, fps: int = 30) -> None:
         """Start a continuous capture loop emitting ``CameraFrameCaptured``."""
         self._require_initialized()
-        if self._is_capturing(camera_id):
-            return
-        camera = await self.open_camera(camera_id)
-        await camera.set_fps(fps)
-        # Re-check after the awaits: a concurrent start_capture may have
-        # registered a task while this coroutine was suspended.
-        if self._is_capturing(camera_id):
-            return
-        interval = 1.0 / max(fps, 1)
-        task = asyncio.create_task(
-            self._capture_loop(camera_id, camera, interval),
-            name=f"camera-capture-{camera_id}",
-        )
-        self._capture_tasks[camera_id] = task
-        task.add_done_callback(self._make_capture_done_callback(camera_id))
+        async with self._camera_lock(camera_id):
+            self._require_lifecycle()
+            if self._is_capturing(camera_id):
+                return
+            camera = await self._open_camera_locked(camera_id)
+            await camera.set_fps(fps)
+            # Re-check after the awaits: a concurrent start_capture may have
+            # registered a task while this coroutine was suspended.
+            self._require_lifecycle()
+            if self._is_capturing(camera_id):
+                return
+            interval = 1.0 / max(fps, 1)
+            task = asyncio.create_task(
+                self._capture_loop(camera_id, camera, interval),
+                name=f"camera-capture-{camera_id}",
+            )
+            self._capture_tasks[camera_id] = task
+            task.add_done_callback(self._make_capture_done_callback(camera_id))
 
     async def stop_capture(self, camera_id: str) -> None:
-        """Stop the continuous capture loop for *camera_id* (no-op if idle)."""
-        task = self._capture_tasks.pop(camera_id, None)
-        if task is not None:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-        # A start_capture that was already in flight may have registered a
-        # new task while we were waiting; the stop wins either way.
-        task = self._capture_tasks.pop(camera_id, None)
-        if task is not None:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        """Stop the continuous capture loop for *camera_id* (no-op if idle).
+
+        Serialized with ``start_capture`` through the per-camera lock, so
+        a start that was already in flight either registers before the
+        cancellation below (and is cancelled here) or observes shutdown
+        and never registers.
+        """
+        async with self._camera_lock(camera_id):
+            task = self._capture_tasks.pop(camera_id, None)
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
     def _is_capturing(self, camera_id: str) -> bool:
         """Return True when a live capture task is registered for *camera_id*."""
         task = self._capture_tasks.get(camera_id)
         return task is not None and not task.done()
+
+    def _require_lifecycle(self) -> None:
+        """Guard that the manager is initialized and not shutting down."""
+        if not self._initialized or self._shutting_down:
+            raise ManagerNotInitializedError(
+                f"{type(self).__name__} is not initialized"
+            )
+
+    def _camera_lock(self, camera_id: str) -> asyncio.Lock:
+        """Return the per-camera lock serializing open/start/stop/close."""
+        return self._camera_locks.setdefault(camera_id, asyncio.Lock())
 
     def _make_capture_done_callback(
         self, camera_id: str
@@ -350,10 +379,14 @@ class CameraManager(Manager):
 
     @override
     async def _on_shutdown(self) -> None:
+        self._shutting_down = True
         for camera_id in list(self._capture_tasks):
             await self.stop_capture(camera_id)
         for camera_id in list(self._cameras):
-            camera = self._cameras.pop(camera_id)
-            await camera.close()
-            self._emit_nowait(CameraClosed(camera_id=camera_id))
+            async with self._camera_lock(camera_id):
+                camera = self._cameras.pop(camera_id, None)
+                if camera is None:
+                    continue
+                await camera.close()
+                self._emit_nowait(CameraClosed(camera_id=camera_id))
         self._frame_subscribers.clear()

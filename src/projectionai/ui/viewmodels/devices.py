@@ -210,9 +210,11 @@ class DevicesViewModel(Observable):
 
     def _on_frame(self, frame: Frame) -> None:
         """Keep only the newest frame; count unrendered ones as dropped."""
-        if self._preview_camera_id is None:
+        if frame.camera_id != self._preview_camera_id:
             return
-        self._preview_error = None
+        if self._preview_error is not None:
+            self._preview_error = None
+            self._notify()
         if (
             self._latest_frame is not None
             and self._latest_frame.frame_number != self._rendered_frame_number
@@ -248,10 +250,10 @@ class DevicesViewModel(Observable):
             isinstance(event, CameraCaptureFailed)
             and event.camera_id == self._preview_camera_id
         ):
-            self._preview_error = _friendly_camera_error(
-                CameraCaptureError(event.reason)
-            )
-            self._notify()
+            error = _friendly_camera_error(CameraCaptureError(event.reason))
+            if self._preview_error != error:
+                self._preview_error = error
+                self._notify()
 
     async def _teardown_preview(self, camera_id: str) -> None:
         """Clear preview state after a close/disconnect (capture already stopped)."""

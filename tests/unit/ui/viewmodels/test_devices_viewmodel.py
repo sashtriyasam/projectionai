@@ -16,7 +16,12 @@ import numpy as np
 import pytest
 
 from projectionai.core.errors import CameraCaptureError, CameraDisconnectedError
-from projectionai.core.events import CameraClosed, CameraDisconnected, EventBus
+from projectionai.core.events import (
+    CameraCaptureFailed,
+    CameraClosed,
+    CameraDisconnected,
+    EventBus,
+)
 from projectionai.infrastructure.camera import MockCameraProvider
 from projectionai.managers.camera_manager import CameraManager
 from projectionai.services.camera import Frame
@@ -166,6 +171,68 @@ async def test_drop_count_tracks_unrendered_frames(
     frame = vm.latest_frame()
     assert frame is not None
     assert frame.frame_number == 5
+
+
+async def test_frame_clears_error_and_notifies_once(
+    setup: tuple[EventBus, CameraManager, DevicesViewModel],
+) -> None:
+    """A recovered frame clears the preview error and notifies once."""
+    _, _, vm = setup
+    vm._preview_camera_id = "mock-0"
+    vm._reset_preview_state()
+    vm._preview_error = "Frame capture failed"
+    revision = vm.revision
+
+    vm._on_frame(_frame("mock-0", 1))
+
+    assert vm.preview_error() is None
+    assert vm.revision == revision + 1
+
+    # A second frame with no error pending must not notify again.
+    vm._on_frame(_frame("mock-0", 2))
+    assert vm.revision == revision + 1
+
+
+async def test_capture_failure_notifies_only_on_change(
+    setup: tuple[EventBus, CameraManager, DevicesViewModel],
+) -> None:
+    """Repeated identical failures must notify once; a changed error notifies again."""
+    _, _, vm = setup
+    vm._preview_camera_id = "mock-0"
+    vm._reset_preview_state()
+    vm._preview_error = "Camera disconnected"
+    revision = vm.revision
+
+    await vm._on_camera_capture_failed(
+        CameraCaptureFailed(camera_id="mock-0", reason="sensor hiccup")
+    )
+    assert vm.preview_error() == "Frame capture failed"
+    assert vm.revision == revision + 1
+
+    # An unchanged error must not notify again — even a new reason maps to
+    # the same friendly message.
+    await vm._on_camera_capture_failed(
+        CameraCaptureFailed(camera_id="mock-0", reason="sensor hiccup")
+    )
+    await vm._on_camera_capture_failed(
+        CameraCaptureFailed(camera_id="mock-0", reason="another hiccup")
+    )
+    assert vm.revision == revision + 1
+
+
+async def test_foreign_frame_is_ignored(
+    setup: tuple[EventBus, CameraManager, DevicesViewModel],
+) -> None:
+    """Frames from a non-preview camera must be dropped."""
+    _, _, vm = setup
+    vm._preview_camera_id = "mock-0"
+    vm._reset_preview_state()
+
+    vm._on_frame(_frame("mock-1", 1))
+
+    assert vm.latest_frame() is None
+    assert vm.frame_count == 0
+    assert vm.dropped_count == 0
 
 
 async def test_disconnect_clears_preview(

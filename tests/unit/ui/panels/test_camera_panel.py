@@ -325,6 +325,18 @@ class TestPreview:
         assert panel.preview_label.pixmap().isNull()
         assert vm.rendered == []
 
+    def test_render_skips_frame_from_other_camera(self, qapp: QApplication) -> None:
+        """A stale frame from a different camera must not be rendered."""
+        vm = _FakeDevicesViewModel(
+            [_camera("cam-0", "Front")], set(), preview_id="cam-0"
+        )
+        vm.latest = _frame("cam-1", 7)
+        panel = CameraPanel()
+        panel.bind_viewmodel(vm)
+        panel._render_preview_frame()
+        assert panel.preview_label.pixmap().isNull()
+        assert vm.rendered == []
+
     def test_live_marker_in_list_item(self, qapp: QApplication) -> None:
         vm = _FakeDevicesViewModel(
             [_camera("cam-0", "Front")], set(), preview_id="cam-0"

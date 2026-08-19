@@ -28,10 +28,16 @@ from projectionai.core.events import (
     JobQueued,
     JobStarted,
 )
-from projectionai.infrastructure.camera import MockCameraProvider
+from projectionai.infrastructure.camera import MockCamera, MockCameraProvider
 from projectionai.managers.camera_manager import CameraManager
 from projectionai.managers.job_manager import JobManager, JobStatus
-from projectionai.services.camera import CameraProperty, CameraProviderFactory, Frame
+from projectionai.services.camera import (
+    Camera,
+    CameraInfo,
+    CameraProperty,
+    CameraProviderFactory,
+    Frame,
+)
 from tests.conftest import FakeEventBus
 
 
@@ -52,6 +58,33 @@ async def _wait_for(predicate: Callable[[], bool], timeout: float = 2.0) -> None
 
 def _frame_event_count(event_bus: FakeEventBus) -> int:
     return sum(isinstance(ev, CameraFrameCaptured) for ev in event_bus.emitted)
+
+
+class _SlowProvider:
+    """CameraProvider whose open() suspends until released (race tests)."""
+
+    def __init__(self) -> None:
+        self.open_calls = 0
+        self.release = asyncio.Event()
+        self.last_camera: MockCamera | None = None
+
+    async def list_cameras(self) -> tuple[CameraInfo, ...]:
+        return ()
+
+    async def open(self, camera_id: str) -> Camera:
+        self.open_calls += 1
+        await self.release.wait()
+        info = CameraInfo(
+            camera_id=camera_id,
+            name=f"Camera {camera_id}",
+            backend="mock",
+            interface="virtual",
+            max_resolution=(640, 480),
+        )
+        camera = MockCamera(info)
+        await camera.open()
+        self.last_camera = camera
+        return camera
 
 
 @pytest.fixture
@@ -267,6 +300,101 @@ async def test_concurrent_start_capture_single_loop(
     count = _frame_event_count(event_bus)
     await asyncio.sleep(0.15)
     assert _frame_event_count(event_bus) == count
+
+
+# -- Startup/shutdown races -------------------------------------------------
+
+
+async def test_concurrent_open_camera_opens_once(event_bus: FakeEventBus) -> None:
+    """Two concurrent open_camera calls must open the device exactly once."""
+    provider = _SlowProvider()
+    manager = CameraManager(event_bus, provider=provider)
+    await manager.initialize()
+    try:
+        first = asyncio.create_task(manager.open_camera("mock-0"))
+        second = asyncio.create_task(manager.open_camera("mock-0"))
+        for _ in range(200):
+            if provider.open_calls >= 1:
+                break
+            await asyncio.sleep(0.01)
+        await asyncio.sleep(0.05)  # give the second call time to reach open
+        assert provider.open_calls == 1  # second call blocked on the lock
+
+        provider.release.set()
+        cameras = await asyncio.gather(first, second)
+        assert cameras[0] is cameras[1]
+        assert manager.is_open("mock-0")
+    finally:
+        await manager.shutdown()
+
+
+async def test_stop_capture_during_open_wins(event_bus: FakeEventBus) -> None:
+    """A start_capture suspended in provider.open must not register a
+    capture loop after stop_capture returns (no zombie loop)."""
+    provider = _SlowProvider()
+    manager = CameraManager(event_bus, provider=provider)
+    await manager.initialize()
+    try:
+        start = asyncio.create_task(manager.start_capture("mock-0", fps=30))
+        for _ in range(200):
+            if provider.open_calls >= 1:
+                break
+            await asyncio.sleep(0.01)
+        assert provider.open_calls == 1
+
+        stop = asyncio.create_task(manager.stop_capture("mock-0"))
+        await asyncio.sleep(0.05)
+        assert not stop.done()  # waiting on the per-camera lock
+
+        provider.release.set()
+        await start
+        await asyncio.wait_for(stop, timeout=2)
+
+        count = _frame_event_count(event_bus)
+        await asyncio.sleep(0.15)
+        assert _frame_event_count(event_bus) == count  # no zombie loop
+    finally:
+        await manager.shutdown()
+
+
+async def test_shutdown_during_open_raises_and_closes_camera(
+    event_bus: FakeEventBus,
+) -> None:
+    """Shutdown while start_capture is suspended in provider.open must
+    reject the late registration and close the freshly opened camera."""
+    provider = _SlowProvider()
+    manager = CameraManager(event_bus, provider=provider)
+    await manager.initialize()
+    start = asyncio.create_task(manager.start_capture("mock-0", fps=30))
+    for _ in range(200):
+        if provider.open_calls >= 1:
+            break
+        await asyncio.sleep(0.01)
+    assert provider.open_calls == 1
+
+    shutdown = asyncio.create_task(manager.shutdown())
+    await asyncio.sleep(0.05)
+
+    provider.release.set()
+    with pytest.raises(ManagerNotInitializedError):
+        await start
+    await asyncio.wait_for(shutdown, timeout=2)
+
+    assert provider.last_camera is not None
+    assert not provider.last_camera.is_open  # opened camera was closed again
+    assert not manager.is_open("mock-0")
+
+
+async def test_operations_after_shutdown_raise(event_bus: FakeEventBus) -> None:
+    """Manager calls after shutdown must fail fast (no partial states)."""
+    manager = CameraManager(event_bus, provider=MockCameraProvider(camera_count=1))
+    await manager.initialize()
+    await manager.shutdown()
+
+    with pytest.raises(ManagerNotInitializedError):
+        await manager.open_camera("mock-0")
+    with pytest.raises(ManagerNotInitializedError):
+        await manager.start_capture("mock-0")
 
 
 # -- Frame subscribers ------------------------------------------------------
