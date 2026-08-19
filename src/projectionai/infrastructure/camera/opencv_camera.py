@@ -55,7 +55,7 @@ class OpenCVCamera(Camera):
         self._height: int = _DEFAULT_HEIGHT
         self._fps: int = _DEFAULT_FPS
         self._pending_properties: dict[CameraProperty, float] = {}
-        self._read_future: asyncio.Future[tuple[bool, object] | None] | None = None
+        self._read_future: asyncio.Future[tuple[bool, cv2.typing.MatLike]] | None = None
 
     @property
     def info(self) -> CameraInfo:

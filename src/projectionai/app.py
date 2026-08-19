@@ -499,7 +499,7 @@ async def _run_qt(
     except Exception:
         _logger.critical("Application shutdown failed", exc_info=True)
         if drive_error is not None:
-            raise drive_error
+            raise drive_error from None
         return 1
 
     if drive_error is not None:
