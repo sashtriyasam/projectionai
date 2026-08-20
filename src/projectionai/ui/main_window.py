@@ -595,7 +595,6 @@ class MainWindow(QMainWindow):
             self._actions.shutdown()
         if self._output_vm is not None:
             self._output_vm.close()
-<<<<<<< HEAD
         if self._devices_vm is not None:
             self._devices_vm.shutdown()
         if self._displays_vm is not None:
@@ -605,14 +604,5 @@ class MainWindow(QMainWindow):
                 self._on_output_escape
             )
             self._output_window.close()
-=======
-        if self._displays_vm is not None:
-            self._displays_vm.attach_output_window(None)
-        if self._output_window is not None:
-            self._output_window.output_escape_requested.disconnect(
-                self._on_output_escape
-            )
-            self._output_window.close()
->>>>>>> main
         _logger.debug("Main window closing")
         super().closeEvent(event)
