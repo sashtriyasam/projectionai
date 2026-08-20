@@ -15,8 +15,13 @@ from collections.abc import AsyncIterator, Callable
 import numpy as np
 import pytest
 
-from projectionai.core.errors import CameraDisconnectedError
-from projectionai.core.events import CameraClosed, CameraDisconnected, EventBus
+from projectionai.core.errors import CameraCaptureError, CameraDisconnectedError
+from projectionai.core.events import (
+    CameraCaptureFailed,
+    CameraClosed,
+    CameraDisconnected,
+    EventBus,
+)
 from projectionai.infrastructure.camera import MockCameraProvider
 from projectionai.managers.camera_manager import CameraManager
 from projectionai.services.camera import Frame
@@ -93,10 +98,10 @@ async def test_start_preview_same_camera_is_noop(
     _, manager, vm = setup
     assert await vm.start_preview("mock-0") is True
     await _wait_for(lambda: vm.frame_count >= 1)
-    assert len(manager._capture_tasks) == 1
+    assert manager.frame_subscriber_count("mock-0") == 1
     assert await vm.start_preview("mock-0") is True
     assert vm.is_previewing("mock-0")
-    assert len(manager._capture_tasks) == 1
+    assert manager.frame_subscriber_count("mock-0") == 1
     assert vm.preview_error() is None
     await vm.stop_preview()
 
@@ -119,7 +124,7 @@ async def test_switch_camera_stops_previous(
     assert await vm.start_preview("mock-1") is True
     assert vm.is_previewing("mock-1")
     assert not vm.is_previewing("mock-0")
-    assert "mock-0" not in manager._capture_tasks
+    assert manager.frame_subscriber_count("mock-0") == 0
     await _wait_for(lambda: vm.frame_count >= 2)
     await vm.stop_preview()
 
@@ -135,7 +140,7 @@ async def test_stop_preview_stops_capture_and_resets(
     assert vm.latest_frame() is None
     assert vm.frame_count == 0
     assert vm.dropped_count == 0
-    assert "mock-0" not in manager._capture_tasks
+    assert manager.frame_subscriber_count("mock-0") == 0
 
 
 async def test_stop_preview_when_idle_is_noop(
@@ -168,6 +173,68 @@ async def test_drop_count_tracks_unrendered_frames(
     assert frame.frame_number == 5
 
 
+async def test_frame_clears_error_and_notifies_once(
+    setup: tuple[EventBus, CameraManager, DevicesViewModel],
+) -> None:
+    """A recovered frame clears the preview error and notifies once."""
+    _, _, vm = setup
+    vm._preview_camera_id = "mock-0"
+    vm._reset_preview_state()
+    vm._preview_error = "Frame capture failed"
+    revision = vm.revision
+
+    vm._on_frame(_frame("mock-0", 1))
+
+    assert vm.preview_error() is None
+    assert vm.revision == revision + 1
+
+    # A second frame with no error pending must not notify again.
+    vm._on_frame(_frame("mock-0", 2))
+    assert vm.revision == revision + 1
+
+
+async def test_capture_failure_notifies_only_on_change(
+    setup: tuple[EventBus, CameraManager, DevicesViewModel],
+) -> None:
+    """Repeated identical failures must notify once; a changed error notifies again."""
+    _, _, vm = setup
+    vm._preview_camera_id = "mock-0"
+    vm._reset_preview_state()
+    vm._preview_error = "Camera disconnected"
+    revision = vm.revision
+
+    await vm._on_camera_capture_failed(
+        CameraCaptureFailed(camera_id="mock-0", reason="sensor hiccup")
+    )
+    assert vm.preview_error() == "Frame capture failed"
+    assert vm.revision == revision + 1
+
+    # An unchanged error must not notify again — even a new reason maps to
+    # the same friendly message.
+    await vm._on_camera_capture_failed(
+        CameraCaptureFailed(camera_id="mock-0", reason="sensor hiccup")
+    )
+    await vm._on_camera_capture_failed(
+        CameraCaptureFailed(camera_id="mock-0", reason="another hiccup")
+    )
+    assert vm.revision == revision + 1
+
+
+async def test_foreign_frame_is_ignored(
+    setup: tuple[EventBus, CameraManager, DevicesViewModel],
+) -> None:
+    """Frames from a non-preview camera must be dropped."""
+    _, _, vm = setup
+    vm._preview_camera_id = "mock-0"
+    vm._reset_preview_state()
+
+    vm._on_frame(_frame("mock-1", 1))
+
+    assert vm.latest_frame() is None
+    assert vm.frame_count == 0
+    assert vm.dropped_count == 0
+
+
 async def test_disconnect_clears_preview(
     setup: tuple[EventBus, CameraManager, DevicesViewModel],
     monkeypatch: pytest.MonkeyPatch,
@@ -176,7 +243,7 @@ async def test_disconnect_clears_preview(
     assert await vm.start_preview("mock-0") is True
     await _wait_for(lambda: vm.frame_count >= 1)
 
-    camera = manager._cameras["mock-0"]
+    camera = await manager.open_camera("mock-0")
 
     async def _boom() -> Frame:
         raise CameraDisconnectedError("device unplugged")
@@ -208,4 +275,44 @@ async def test_unrelated_disconnect_is_ignored(
     await event_bus.emit(CameraDisconnected(camera_id="mock-1"))
     await _flush()
     assert vm.is_previewing("mock-0")
+    await vm.stop_preview()
+
+
+async def test_capture_failure_sets_preview_error_and_recovers(
+    setup: tuple[EventBus, CameraManager, DevicesViewModel],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, manager, vm = setup
+    assert await vm.start_preview("mock-0") is True
+    await _wait_for(lambda: vm.frame_count >= 1)
+
+    camera = await manager.open_camera("mock-0")
+    original_capture = camera.capture
+    fail = {"value": True}
+
+    async def _flaky() -> Frame:
+        if fail["value"]:
+            raise CameraCaptureError("sensor hiccup")
+        return await original_capture()
+
+    monkeypatch.setattr(camera, "capture", _flaky)
+    await _wait_for(lambda: vm.preview_error() == "Frame capture failed")
+    assert vm.is_previewing("mock-0")
+    fail["value"] = False
+    await _wait_for(lambda: vm.preview_error() is None)
+    await vm.stop_preview()
+
+
+async def test_shutdown_unsubscribes_from_camera_events(
+    setup: tuple[EventBus, CameraManager, DevicesViewModel],
+) -> None:
+    event_bus, _, vm = setup
+    assert await vm.start_preview("mock-0") is True
+    await _wait_for(lambda: vm.frame_count >= 1)
+    vm.shutdown()
+    vm.shutdown()  # idempotent
+    await event_bus.emit(CameraDisconnected(camera_id="mock-0"))
+    await _flush()
+    assert vm.preview_camera_id == "mock-0"
+    assert vm.preview_error() is None
     await vm.stop_preview()

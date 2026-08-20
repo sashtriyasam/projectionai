@@ -27,7 +27,7 @@ import pytest
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QApplication, QMainWindow
 
-from projectionai.app import _drive_qt_loop
+from projectionai.app import _drive_qt_loop, _run_qt
 from projectionai.ui.widgets.panel_base import run_async
 
 
@@ -97,3 +97,117 @@ def test_pump_destroys_deferred_delete_objects(qapp: QApplication) -> None:
     asyncio.run(_drive_qt_loop(qapp, window))
 
     assert destroyed == [True]
+
+
+class _FakeWindow:
+    """MainWindow stand-in recording that show() was called."""
+
+    def __init__(self, _app: object) -> None:
+        self.shown = False
+
+    def show(self) -> None:
+        self.shown = True
+
+
+class _FakeApp:
+    """Application stand-in recording shutdown() calls."""
+
+    def __init__(self) -> None:
+        self.shutdown_calls = 0
+        self.shutdown_error: Exception | None = None
+
+    async def shutdown(self) -> None:
+        self.shutdown_calls += 1
+        if self.shutdown_error is not None:
+            raise self.shutdown_error
+
+
+async def test_run_qt_shuts_down_when_drive_loop_fails(
+    qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing Qt loop must still release application resources."""
+    app = _FakeApp()
+    monkeypatch.setattr("projectionai.ui.main_window.MainWindow", _FakeWindow)
+
+    async def _boom(_qapp: QApplication, _window: object) -> None:
+        raise RuntimeError("loop boom")
+
+    monkeypatch.setattr("projectionai.app._drive_qt_loop", _boom)
+
+    with pytest.raises(RuntimeError, match="loop boom"):
+        await _run_qt(app, qapp)
+
+    assert app.shutdown_calls == 1
+
+
+async def test_run_qt_cancellation_still_shuts_down(
+    qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cancellation of the Qt loop must not skip application shutdown."""
+    app = _FakeApp()
+    monkeypatch.setattr("projectionai.ui.main_window.MainWindow", _FakeWindow)
+
+    async def _cancel(_qapp: QApplication, _window: object) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr("projectionai.app._drive_qt_loop", _cancel)
+
+    with pytest.raises(asyncio.CancelledError):
+        await _run_qt(app, qapp)
+
+    assert app.shutdown_calls == 1
+
+
+async def test_run_qt_shutdown_failure_returns_1(
+    qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A shutdown failure alone must surface as exit code 1."""
+    app = _FakeApp()
+    app.shutdown_error = RuntimeError("shutdown boom")
+    monkeypatch.setattr("projectionai.ui.main_window.MainWindow", _FakeWindow)
+
+    async def _noop(_qapp: QApplication, _window: object) -> None:
+        return None
+
+    monkeypatch.setattr("projectionai.app._drive_qt_loop", _noop)
+
+    code = await _run_qt(app, qapp)
+
+    assert code == 1
+
+
+async def test_run_qt_drive_error_wins_over_shutdown_failure(
+    qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The original Qt-loop error must not be masked by a shutdown failure."""
+    app = _FakeApp()
+    app.shutdown_error = RuntimeError("shutdown boom")
+    monkeypatch.setattr("projectionai.ui.main_window.MainWindow", _FakeWindow)
+
+    async def _boom(_qapp: QApplication, _window: object) -> None:
+        raise RuntimeError("loop boom")
+
+    monkeypatch.setattr("projectionai.app._drive_qt_loop", _boom)
+
+    with pytest.raises(RuntimeError, match="loop boom"):
+        await _run_qt(app, qapp)
+
+    assert app.shutdown_calls == 1
+
+
+async def test_run_qt_clean_exit_returns_0(
+    qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A clean pump exit shuts the application down and returns 0."""
+    app = _FakeApp()
+    monkeypatch.setattr("projectionai.ui.main_window.MainWindow", _FakeWindow)
+
+    async def _noop(_qapp: QApplication, _window: object) -> None:
+        return None
+
+    monkeypatch.setattr("projectionai.app._drive_qt_loop", _noop)
+
+    code = await _run_qt(app, qapp)
+
+    assert code == 0
+    assert app.shutdown_calls == 1

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 
@@ -39,6 +40,8 @@ _PROPERTY_IDS: dict[CameraProperty, int] = {
     CameraProperty.WHITE_BALANCE: cv2.CAP_PROP_WB_TEMPERATURE,
 }
 
+_READ_DRAIN_TIMEOUT = 2.0
+
 
 class OpenCVCamera(Camera):
     """Camera backed by a ``cv2.VideoCapture`` device."""
@@ -52,6 +55,7 @@ class OpenCVCamera(Camera):
         self._height: int = _DEFAULT_HEIGHT
         self._fps: int = _DEFAULT_FPS
         self._pending_properties: dict[CameraProperty, float] = {}
+        self._read_future: asyncio.Future[tuple[bool, cv2.typing.MatLike]] | None = None
 
     @property
     def info(self) -> CameraInfo:
@@ -80,13 +84,45 @@ class OpenCVCamera(Camera):
         )
 
     async def close(self) -> None:
+        future = self._read_future
+        if future is not None and not future.done():
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(future), timeout=_READ_DRAIN_TIMEOUT
+                )
+            except (asyncio.CancelledError, Exception):
+                _logger.warning(
+                    "Camera %s read still in flight after %.1fs; releasing anyway",
+                    self._info.camera_id,
+                    _READ_DRAIN_TIMEOUT,
+                )
+        if future is not None and future.done() and not future.cancelled():
+            # A wedged read may still fail after the drain; consume its
+            # exception so the loop does not warn about an unretrieved one.
+            with contextlib.suppress(asyncio.InvalidStateError):
+                future.exception()
         if self._cap is not None:
             self._cap.release()
             self._cap = None
+        self._read_future = None
 
     async def capture(self) -> Frame:
         cap = self._require_cap()
-        ok, frame = await asyncio.to_thread(cap.read)
+        previous = self._read_future
+        if previous is not None and not previous.done():
+            with contextlib.suppress(Exception):
+                await asyncio.shield(previous)
+            cap = self._require_cap()
+        loop = asyncio.get_running_loop()
+        future = loop.run_in_executor(None, cap.read)
+        self._read_future = future
+        try:
+            ok, frame = await asyncio.shield(future)
+        except asyncio.CancelledError:
+            # The executor read keeps running; close() drains it with a
+            # bounded wait before releasing the capture.
+            raise
+        self._read_future = None
         if not ok or frame is None:
             if not cap.isOpened():
                 raise CameraDisconnectedError(

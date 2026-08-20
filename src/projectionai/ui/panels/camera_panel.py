@@ -44,6 +44,7 @@ class CameraPanel(ViewModelPanel):
         self.setObjectName("cameraPanel")
 
         self._current_frame: Frame | None = None
+        self._last_rendered_camera: str | None = None
         self._last_rendered_frame = -1
         self._preview_timer = QTimer(self)
         self._preview_timer.setInterval(_PREVIEW_INTERVAL_MS)
@@ -192,6 +193,10 @@ class CameraPanel(ViewModelPanel):
         camera_id = self._selected_camera_id()
         if vm is None or camera_id is None or not hasattr(vm, "start_preview"):
             return
+        # A restarted preview must not skip frames whose numbers collide
+        # with the previous preview's last rendered frame.
+        self._last_rendered_camera = None
+        self._last_rendered_frame = -1
         self._preview_timer.start()
         run_async(vm.start_preview(camera_id))
 
@@ -206,13 +211,20 @@ class CameraPanel(ViewModelPanel):
         vm = self._viewmodel
         if vm is None:
             return
-        if getattr(vm, "preview_camera_id", None) is None:
+        preview_id = getattr(vm, "preview_camera_id", None)
+        if preview_id is None:
             return
         frame = getattr(vm, "latest_frame", lambda: None)()
-        if frame is None or frame.frame_number == self._last_rendered_frame:
+        if frame is None or frame.camera_id != preview_id:
+            return
+        if (
+            frame.camera_id == self._last_rendered_camera
+            and frame.frame_number == self._last_rendered_frame
+        ):
             return
         self._current_frame = frame
         self._display_frame(frame)
+        self._last_rendered_camera = frame.camera_id
         self._last_rendered_frame = frame.frame_number
         mark_rendered = getattr(vm, "mark_frame_rendered", None)
         if mark_rendered is not None:
@@ -266,6 +278,13 @@ class CameraPanel(ViewModelPanel):
         vm = self._viewmodel
         if vm is None:
             return
+        error = getattr(vm, "preview_error", lambda: None)()
+        if error:
+            self.preview_info_label.setText(f"ERROR · {error}")
+            self.preview_info_label.setStyleSheet(
+                f"color: {LIVE_RED}; padding: 2px 4px;"
+            )
+            return
         preview_id = getattr(vm, "preview_camera_id", None)
         if preview_id is None:
             self.preview_info_label.setText("idle")
@@ -289,6 +308,7 @@ class CameraPanel(ViewModelPanel):
 
     def _reset_preview_display(self) -> None:
         self._current_frame = None
+        self._last_rendered_camera = None
         self._last_rendered_frame = -1
         self.preview_label.setText("No preview")
         self.preview_label.setStyleSheet(

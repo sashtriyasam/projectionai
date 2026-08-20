@@ -7,6 +7,7 @@ the ``ManagerRegistry``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from pathlib import Path
@@ -487,9 +488,26 @@ async def _run_qt(
         except Exception as exc:
             _logger.error("Failed to open project %s: %s", project_path, exc)
 
-    await _drive_qt_loop(qapp, window)
+    # The Qt loop is the source of truth for application lifetime. If it
+    # raises (or is cancelled), application resources must still be
+    # released: run shutdown unconditionally, but never let a shutdown
+    # failure hide the original Qt-loop failure.
+    drive_error: BaseException | None = None
+    try:
+        await _drive_qt_loop(qapp, window)
+    except (Exception, asyncio.CancelledError) as exc:
+        drive_error = exc
 
-    await app.shutdown()
+    try:
+        await app.shutdown()
+    except Exception:
+        _logger.critical("Application shutdown failed", exc_info=True)
+        if drive_error is not None:
+            raise drive_error from None
+        return 1
+
+    if drive_error is not None:
+        raise drive_error
     return 0
 
 

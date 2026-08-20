@@ -234,6 +234,7 @@ class MainWindow(QMainWindow):
         self._panels: dict[str, ViewModelPanel] = {}
         self._project_vm: ProjectViewModel | None = None
         self._output_vm: OutputViewModel | None = None
+        self._devices_vm: DevicesViewModel | None = None
         self._calibration_vm: CalibrationViewModel | None = None
         self._displays_vm: DisplaysViewModel | None = None
         self._output_window: GLOutputWindow | None = None
@@ -261,6 +262,7 @@ class MainWindow(QMainWindow):
             self._app.project, output=output_vm
         )
         devices_vm = DevicesViewModel(self._app.cameras)
+        self._devices_vm = devices_vm
         displays_vm = DisplaysViewModel(self._app.hardware)
         self._displays_vm = displays_vm
 
@@ -593,6 +595,8 @@ class MainWindow(QMainWindow):
             self._actions.shutdown()
         if self._output_vm is not None:
             self._output_vm.close()
+        if self._devices_vm is not None:
+            self._devices_vm.shutdown()
         if self._displays_vm is not None:
             self._displays_vm.attach_output_window(None)
         if self._output_window is not None:
