@@ -1,0 +1,169 @@
+# ProjectionAI — Advisory AI PR review (Layer 2)
+#
+# Engine: OpenCodeReview (OCR) via the official reusable action
+# (alibaba/open-code-review). The action is purpose-built for
+# pull_request_target: it checks out the TRUSTED BASE revision (never the
+# PR head), fetches the PR head fork-safely as git objects only
+# (git fetch origin pull/<n>/head — no PR file is materialized into the
+# working tree), computes the merge-base, and runs
+#   ocr review --from <merge-base> --to <head> --format json
+# so PR-supplied code is NEVER executed and PR-supplied rules can NEVER
+# control the LLM prompt. This makes pull_request_target safe here: secrets
+# are available for fork PRs while the review stays read-only.
+#
+# Fork policy (documented decision): fork PRs ARE reviewed. Safe because the
+# action never checks out or executes PR code and rules resolve from the
+# trusted base checkout. LLM budget is the only consideration; see
+# .github/ai-review/README.md for the full security rationale.
+#
+# Reproducible pinning (upstream requirement): the action is pinned to a
+# FULL COMMIT SHA and the OCR CLI is pinned via ocr_version to the matching
+# npm release (@alibaba-group/open-code-review@1.9.7). Floating refs
+# (@main/@master/latest) are forbidden. Update both coordinates together,
+# then re-verify the action's security model (base checkout, fork handling)
+# in action.yml before merging an upgrade.
+#
+# Advisory only: findings never fail CI or gate merges. If `ocr review`
+# exits non-zero (infrastructure failure: bad config, LLM outage), this job
+# fails to surface the maintenance issue — the check is informational and
+# never required for merge.
+
+name: AI PR Review
+
+on:
+  # pull_request_target so secrets/variables are available for fork PRs too.
+  # Safe: the action reads the diff from git objects only; PR code is never
+  # checked out or executed.
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+  # On-demand re-review via PR comment starting with /open-code-review or
+  # @open-code-review. Authorization is enforced in the job `if` below
+  # (MEMBER/OWNER/COLLABORATOR, human only, never bots).
+  issue_comment:
+    types: [created]
+
+# Least privilege: read repo contents (diff/objects), write pull-requests
+# ONLY to post review comments. Nothing else.
+permissions:
+  contents: read
+  pull-requests: write
+
+# Conditional concurrency group (upstream pattern, evaluated before `if`):
+# matching events (PR events + authorized trigger comments) share a per-PR
+# group ocr-<pr_number> so a new review cancels any stale in-progress review
+# for the SAME PR; non-matching comments land in a unique noop-<run_id>
+# group that can never collide with a real review, so they are skipped
+# without disrupting anything. No cancellation across different PRs.
+concurrency:
+  group: >-
+    ${{
+      (
+        github.event_name == 'pull_request_target'
+        || (
+          github.event_name == 'issue_comment'
+          && github.event.issue.pull_request
+          && github.event.comment.user.type != 'Bot'
+          && (
+            github.event.comment.author_association == 'MEMBER'
+            || github.event.comment.author_association == 'OWNER'
+            || github.event.comment.author_association == 'COLLABORATOR'
+          )
+          && (
+            startsWith(github.event.comment.body, '/open-code-review')
+            || startsWith(github.event.comment.body, '@open-code-review')
+          )
+        )
+      )
+      && format('ocr-{0}', github.event.pull_request.number || github.event.issue.number)
+      || format('noop-{0}', github.run_id)
+    }}
+  cancel-in-progress: true
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # PR events: review every change. issue_comment: only human-authored
+    # comments (not bots) from collaborators, starting with a trigger
+    # keyword. GITHUB_TOKEN already suppresses events from bot-posted
+    # comments; the user.type != 'Bot' guard is the safety net for
+    # PAT/App-token setups and prevents self-triggering loops.
+    if: |
+      github.event_name == 'pull_request_target'
+      || (
+        github.event_name == 'issue_comment'
+        && github.event.issue.pull_request
+        && github.event.comment.user.type != 'Bot'
+        && (
+          github.event.comment.author_association == 'MEMBER'
+          || github.event.comment.author_association == 'OWNER'
+          || github.event.comment.author_association == 'COLLABORATOR'
+        )
+        && (
+          startsWith(github.event.comment.body, '/open-code-review')
+          || startsWith(github.event.comment.body, '@open-code-review')
+        )
+      )
+    steps:
+      # issue_comment events carry no top-level pull_request payload, so
+      # resolve base ref / head SHA / title via the API. For
+      # pull_request_target these outputs stay empty and the action
+      # resolves the refs from the event itself.
+      - name: Resolve PR context
+        id: pr-context
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const prNumber = context.issue.number;
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            core.setOutput('base_ref', pullRequest.base.ref);
+            core.setOutput('head_sha', pullRequest.head.sha);
+            core.setOutput('title', pullRequest.title);
+
+      # The action performs its own full base checkout (fetch-depth: 0),
+      # installs the pinned OCR CLI, reviews the base-to-head diff, and
+      # posts sticky summary + inline comments. No checkout step needed.
+      - name: Run OpenCodeReview
+        uses: alibaba/open-code-review@f269d0ce00c3b9c178d7c5dc9021409a3e273cf1 # v1.9.7
+        with:
+          # LLM credentials: repository secrets/variables, consumed only by
+          # the review engine. Never echoed, logged, or written to files.
+          # Secret OCR_LLM_AUTH_TOKEN maps to input llm_auth_token (env
+          # OCR_LLM_TOKEN inside the action); variable OCR_LLM_USE_ANTHROPIC
+          # maps to input llm_use_anthropic (env OCR_USE_ANTHROPIC).
+          llm_url: ${{ secrets.OCR_LLM_URL }}
+          llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+          llm_model: ${{ vars.OCR_LLM_MODEL }}
+          llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
+          # Reproducible pinning: OCR CLI version matching the action SHA.
+          ocr_version: '1.9.7'
+          # Trusted-base rules: the action checks out the BASE revision, so
+          # this path resolves to the base revision's rule.json — never a
+          # PR-supplied file. Same file OCR would auto-discover; explicit
+          # for determinism and defense in depth.
+          rule: .opencodereview/rule.json
+          # Sticky summary: update the single summary comment in place
+          # instead of posting a new one each run (no comment spam).
+          sticky_summary: 'true'
+          # Incremental review: only append inline comments whose
+          # (path, line range) does not overlap an existing bot review
+          # comment; history is never deleted (non-destructive).
+          incremental: 'true'
+          # Route low-severity and style findings to the PR summary instead
+          # of inline comments (fail-open: nothing is dropped, just moved).
+          route_severity_below: 'low'
+          route_categories: 'style'
+          # PR title as background context; empty on pull_request_target
+          # events is avoided by the || fallback to the event title.
+          background: ${{ steps.pr-context.outputs.title || github.event.pull_request.title }}
+          # For issue_comment triggers pass the API-resolved refs; for
+          # pull_request_target the action resolves them from the event.
+          base_ref: ${{ steps.pr-context.outputs.base_ref }}
+          head_sha: ${{ steps.pr-context.outputs.head_sha }}
+          # Raw JSON result + stderr as workflow artifacts for diagnosis.
+          upload_artifacts: 'true'

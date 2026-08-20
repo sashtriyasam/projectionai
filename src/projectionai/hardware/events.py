@@ -9,6 +9,7 @@ coordination) subscribe by event type.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from projectionai.core.events import Event
 from projectionai.hardware.models import (
@@ -16,6 +17,9 @@ from projectionai.hardware.models import (
     DisplayMode,
     DisplayOrientation,
 )
+
+if TYPE_CHECKING:
+    from projectionai.hardware.output_manager import OutputState
 
 # ---------------------------------------------------------------------------
 # Display topology events (emitted by DisplayManager / DisplayWatcher)
@@ -147,6 +151,22 @@ class OutputBlackout(Event):
     """Program output was blacked out (live cut off)."""
 
     session_id: str
+
+
+@dataclass(frozen=True)
+class OutputFrozen(Event):
+    """Program output was frozen — the last frame is held."""
+
+    session_id: str
+    from_state: OutputState
+
+
+@dataclass(frozen=True)
+class OutputUnfrozen(Event):
+    """Frozen program output resumed."""
+
+    session_id: str
+    restored_state: OutputState
 
 
 # ---------------------------------------------------------------------------

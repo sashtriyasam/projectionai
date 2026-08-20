@@ -28,6 +28,7 @@ from projectionai.hardware.display_validator import DisplayValidator
 from projectionai.hardware.display_watcher import DisplayWatcher
 from projectionai.hardware.hardware_manager import HardwareManager
 from projectionai.hardware.output_manager import OutputManager
+from projectionai.infrastructure.display.qt_provider import QtDisplayProvider
 from projectionai.managers import ManagerRegistry
 from projectionai.managers.asset_manager import AssetManager
 from projectionai.managers.camera_manager import CameraManager
@@ -221,7 +222,10 @@ class Application:
         calibration_mgr.data_dir = data_dir / "calibration"
 
         if self._hardware_manager is None:
-            display_mgr = DisplayManager(self._event_bus)
+            display_mgr = DisplayManager(
+                self._event_bus,
+                provider=QtDisplayProvider(),
+            )
             watcher = DisplayWatcher(
                 self._event_bus,
                 display_manager=display_mgr,

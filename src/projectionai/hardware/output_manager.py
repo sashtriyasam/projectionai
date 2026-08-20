@@ -35,10 +35,12 @@ from projectionai.hardware.errors import (
 from projectionai.hardware.events import (
     OutputArmed,
     OutputBlackout,
+    OutputFrozen,
     OutputLiveStarted,
     OutputPreviewChanged,
     OutputSessionEnded,
     OutputSessionStarted,
+    OutputUnfrozen,
 )
 from projectionai.hardware.models import OutputWindow
 from projectionai.managers import Manager
@@ -54,6 +56,7 @@ class OutputState(StrEnum):
     ARMED = "armed"
     LIVE = "live"
     BLACKOUT = "blackout"
+    FREEZE = "freeze"
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,7 @@ class OutputManager(Manager):
         self._validator = validator or DisplayValidator()
         self._session: OutputSession | None = None
         self._history: list[OutputSession] = []
+        self._pre_freeze_state: OutputState | None = None
         self._renderer_ready_provider = renderer_ready_provider
         self._window_available_provider = window_available_provider
 
@@ -164,6 +168,7 @@ class OutputManager(Manager):
             return
         self._record(session)  # final snapshot of the session before clearing
         self._session = None
+        self._pre_freeze_state = None
         self._display_manager.set_live_output(None)
         self._display_manager.set_preview_output(None)
         self._emit_nowait(OutputSessionEnded(session.session_id))
@@ -271,6 +276,85 @@ class OutputManager(Manager):
         )
         self._emit_nowait(OutputBlackout(session.session_id))
 
+    async def freeze(self) -> None:
+        """Hold the current frame (state ``FREEZE``).
+
+        Only valid while live or blacked out; the live route (when set)
+        is kept so unfreezing resumes instantly. The output window is
+        responsible for holding the last rendered frame.
+
+        Raises:
+            OutputSessionError: When the session is not live/blacked out
+                (the state is left unchanged).
+        """
+        self._require_initialized()
+        session = self._require_session()
+        if session.state not in (OutputState.LIVE, OutputState.BLACKOUT):
+            raise OutputSessionError(
+                f"Cannot freeze from {session.state.value!r} — "
+                "only live or blackout output can be frozen."
+            )
+        self._pre_freeze_state = session.state
+        self._record(
+            OutputSession(
+                session_id=session.session_id,
+                state=OutputState.FREEZE,
+                preview_display_id=session.preview_display_id,
+                live_display_id=session.live_display_id,
+                created_at=session.created_at,
+                updated_at=datetime.now(UTC),
+            )
+        )
+        self._emit_nowait(OutputFrozen(session.session_id, session.state))
+        _logger.info("Output frozen: %s", session.session_id)
+
+    async def unfreeze(self) -> None:
+        """Resume from ``FREEZE`` to the state it was frozen from.
+
+        When the frozen state was ``LIVE`` but the live display has
+        since disconnected, falls back to ``BLACKOUT`` instead of
+        reporting a live route that no longer exists.
+
+        Raises:
+            OutputSessionError: When the session is not frozen (the
+                state is left unchanged).
+        """
+        self._require_initialized()
+        session = self._require_session()
+        if session.state is not OutputState.FREEZE:
+            raise OutputSessionError(
+                f"Cannot unfreeze from {session.state.value!r} — "
+                "the session is not frozen."
+            )
+        restored = self._pre_freeze_state or OutputState.LIVE
+        self._pre_freeze_state = None
+        if restored is OutputState.LIVE:
+            live_id = session.live_display_id
+            if live_id is None or not self._display_manager.has(live_id):
+                # The display that was live is gone: reporting LIVE would
+                # lie (the display manager has already cleared the live
+                # route). Fall back to BLACKOUT so the session state
+                # matches the physical output.
+                restored = OutputState.BLACKOUT
+                self._display_manager.set_live_output(None)
+            else:
+                # Re-apply the route so the recorded live display and the
+                # display manager's live output stay aligned (no-op when
+                # the route never drifted).
+                self._display_manager.set_live_output(live_id)
+        self._record(
+            OutputSession(
+                session_id=session.session_id,
+                state=restored,
+                preview_display_id=session.preview_display_id,
+                live_display_id=session.live_display_id,
+                created_at=session.created_at,
+                updated_at=datetime.now(UTC),
+            )
+        )
+        self._emit_nowait(OutputUnfrozen(session.session_id, restored))
+        _logger.info("Output unfrozen: %s", session.session_id)
+
     # -- Safe switch helper ---------------------------------------------------
 
     async def switch_live_to(
@@ -284,6 +368,15 @@ class OutputManager(Manager):
         prior session state and history untouched.
         """
         original = self._session
+        display = self._display_manager.get(display_id)  # raises if unknown
+        if not display.capabilities.supports_fullscreen:
+            # The facade must not bypass the fullscreen capability gate:
+            # a live switch moves the output window fullscreen on the
+            # display, so a display that cannot go fullscreen is not a
+            # valid live target here.
+            raise OutputSessionError(
+                f"{display.name!r} does not support fullscreen output."
+            )
         try:
             await self.set_live_target(display_id)
             report = await self.go_live()
@@ -297,9 +390,21 @@ class OutputManager(Manager):
         return report
 
     async def set_live_target(self, display_id: str) -> None:
-        """Set the session's live target (no switch yet)."""
+        """Set the session's live target (no switch yet).
+
+        Rejected while the session is frozen: the live target of a
+        frozen session must not change (unfreeze first), otherwise the
+        recorded target could diverge from the actual live route.
+
+        Raises:
+            OutputSessionError: When the session is frozen.
+        """
         self._require_initialized()
         session = self._require_session()
+        if session.state is OutputState.FREEZE:
+            raise OutputSessionError(
+                "Cannot change the live target while the output is frozen."
+            )
         self._display_manager.get(display_id)  # raises if unknown
         self._record(
             OutputSession(

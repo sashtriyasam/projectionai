@@ -46,6 +46,7 @@ from projectionai.domain.project import Project
 from projectionai.domain.workspace import PanelState, WorkspaceLayout
 from projectionai.editor.viewport_controller import ViewportController
 from projectionai.infrastructure.renderer.camera import OrbitCamera
+from projectionai.infrastructure.renderer.output_window import GLOutputWindow
 from projectionai.ui.actions.actions import Actions
 from projectionai.ui.panels import (
     AiAssistantPanel,
@@ -78,6 +79,7 @@ from projectionai.ui.viewmodels.scenes import ScenesViewModel
 from projectionai.ui.viewmodels.status import StatusViewModel
 from projectionai.ui.viewmodels.timeline_model import TimelineModel
 from projectionai.ui.views import MainViewport, StatusBar, TimelineWidget
+from projectionai.ui.widgets.panel_base import run_async
 
 _logger = logging.getLogger(__name__)
 
@@ -234,6 +236,8 @@ class MainWindow(QMainWindow):
         self._output_vm: OutputViewModel | None = None
         self._devices_vm: DevicesViewModel | None = None
         self._calibration_vm: CalibrationViewModel | None = None
+        self._displays_vm: DisplaysViewModel | None = None
+        self._output_window: GLOutputWindow | None = None
         self._viewport: MainViewport | None = None
         self._status_bar: StatusBar | None = None
         self._actions: Actions | None = None
@@ -260,6 +264,13 @@ class MainWindow(QMainWindow):
         devices_vm = DevicesViewModel(self._app.cameras)
         self._devices_vm = devices_vm
         displays_vm = DisplaysViewModel(self._app.hardware)
+        self._displays_vm = displays_vm
+
+        # -- Dedicated projector output window (borderless, fullscreen) ------
+        # Created hidden; shown only when a display is selected as live.
+        self._output_window = GLOutputWindow()
+        self._output_window.output_escape_requested.connect(self._on_output_escape)
+        displays_vm.attach_output_window(self._output_window)
         timeline_model = TimelineModel(fps=30.0, duration_frames=3600)
         scenes_vm = ScenesViewModel(self._app.scenes)
         self._project_vm = ProjectViewModel(self._app.project)
@@ -550,6 +561,13 @@ class MainWindow(QMainWindow):
         """Quit the application (Actions ``File > Quit`` handler)."""
         self.close()
 
+    def _on_output_escape(self) -> None:
+        """ESC on the dedicated output window ends the output session."""
+        displays_vm = self._displays_vm
+        if displays_vm is None:
+            return
+        run_async(displays_vm.exit_output())
+
     @override
     def closeEvent(self, event: QCloseEvent) -> None:
         self._poll_timer.stop()
@@ -558,6 +576,8 @@ class MainWindow(QMainWindow):
         self._app.event_bus.unsubscribe(
             WorkspaceLayoutChanged, self._on_workspace_changed
         )
+        if self._displays_vm is not None:
+            self._displays_vm.shutdown()
         ws = self._app.workspace
         if ws is not None:
             ws.update_window_geometry(
@@ -575,7 +595,24 @@ class MainWindow(QMainWindow):
             self._actions.shutdown()
         if self._output_vm is not None:
             self._output_vm.close()
+<<<<<<< HEAD
         if self._devices_vm is not None:
             self._devices_vm.shutdown()
+        if self._displays_vm is not None:
+            self._displays_vm.attach_output_window(None)
+        if self._output_window is not None:
+            self._output_window.output_escape_requested.disconnect(
+                self._on_output_escape
+            )
+            self._output_window.close()
+=======
+        if self._displays_vm is not None:
+            self._displays_vm.attach_output_window(None)
+        if self._output_window is not None:
+            self._output_window.output_escape_requested.disconnect(
+                self._on_output_escape
+            )
+            self._output_window.close()
+>>>>>>> main
         _logger.debug("Main window closing")
         super().closeEvent(event)
