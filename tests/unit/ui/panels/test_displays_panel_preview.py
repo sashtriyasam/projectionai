@@ -48,6 +48,7 @@ class _FakeViewModel:
         self.session = session
         self.output_state = type("_State", (), {"value": "idle"})()
         self.preview_calls: list[str | None] = []
+        self.message: str | None = None
 
     def displays(self) -> tuple[DisplayInfo, ...]:
         return self._displays

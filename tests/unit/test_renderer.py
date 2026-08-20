@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -21,6 +22,7 @@ from projectionai.infrastructure.renderer.camera import (
 from projectionai.infrastructure.renderer.mesh import Mesh
 from projectionai.infrastructure.renderer.pipeline import RenderPipeline
 from projectionai.infrastructure.renderer.pipeline_pass import RenderPass
+from projectionai.infrastructure.renderer.render_target import ScreenTarget
 from projectionai.infrastructure.renderer.settings import RendererSettings
 from projectionai.infrastructure.renderer.statistics import (
     FrameMetrics,
@@ -704,3 +706,54 @@ class TestRenderPipelineConstruction:
         assert pl.pass_count == 0
         assert pl.passes == []
         assert pl.enabled_passes == []
+
+
+# ===========================================================================
+# RenderTarget — ScreenTarget depth clear
+# ===========================================================================
+
+
+class TestScreenTargetDepthClear:
+    """Tests for ScreenTarget.clear() depth parameter propagation."""
+
+    def test_clear_passes_depth_to_gl_when_fbo_bound(self) -> None:
+        """Non-default depth value must reach glClearDepthf before glClear."""
+        fake_ctx = MagicMock()
+        fake_ctx.screen = MagicMock()
+
+        with patch("projectionai.infrastructure.renderer.render_target._gl") as mock_gl:
+            mock_gl_obj = MagicMock()
+            mock_gl.return_value = mock_gl_obj
+
+            target = ScreenTarget(fake_ctx, 800, 600, fbo_id=1)
+            target.clear(0.0, 0.0, 0.0, 1.0, depth=0.5)
+
+            # Verify glClearDepthf was called with the custom depth value
+            mock_gl_obj.glClearDepthf.assert_called_once_with(0.5)
+            # Verify glClear was called with both color and depth bits
+            mock_gl_obj.glClear.assert_called_once()
+
+    def test_clear_uses_default_depth_when_not_specified(self) -> None:
+        """Default depth (1.0) must be passed when not explicitly set."""
+        fake_ctx = MagicMock()
+        fake_ctx.screen = MagicMock()
+
+        with patch("projectionai.infrastructure.renderer.render_target._gl") as mock_gl:
+            mock_gl_obj = MagicMock()
+            mock_gl.return_value = mock_gl_obj
+
+            target = ScreenTarget(fake_ctx, 800, 600, fbo_id=1)
+            target.clear(0.0, 0.0, 0.0, 1.0)  # depth defaults to 1.0
+
+            mock_gl_obj.glClearDepthf.assert_called_once_with(1.0)
+
+    def test_clear_delegates_to_mgl_when_no_fbo(self) -> None:
+        """Without external FBO, clear delegates to ModernGL screen.clear()."""
+        fake_ctx = MagicMock()
+        fake_screen = MagicMock()
+        fake_ctx.screen = fake_screen
+
+        target = ScreenTarget(fake_ctx, 800, 600, fbo_id=0)
+        target.clear(0.1, 0.2, 0.3, 1.0, depth=0.75)
+
+        fake_screen.clear.assert_called_once_with(0.1, 0.2, 0.3, 1.0, 0.75)

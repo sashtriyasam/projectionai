@@ -3,6 +3,9 @@
 Compiles vertex + fragment shader pairs and exposes a clean API for
 setting uniforms. All GLSL source lives in ``shaders/`` with a fallback
 embedded module ``_glsl.py``.
+
+Compatible with ModernGL 5.12+ where Program.use() is removed and
+VAO.render() automatically uses the program stored in the VAO.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import moderngl
 import numpy as np
 from numpy.typing import NDArray
 
@@ -66,12 +70,19 @@ class Shader:
         except Exception as exc:
             raise ShaderError(f"Failed to compile shader '{name}': {exc}") from exc
 
-        # Cache uniform and attribute locations
-        for uniform in self._program:
-            self._uniforms[uniform] = self._program[uniform]
+        # Cache only actual Uniform objects (ModernGL 5.12+ iterates both
+        # uniforms and attributes; filter by type).
+        for name in self._program:
+            item = self._program[name]
+            if isinstance(item, moderngl.Uniform):
+                self._uniforms[name] = item
+
+        # Cache attribute locations for known vertex attributes
         for attr_name in ("in_position", "in_normal", "in_uv", "in_color"):
             with contextlib.suppress(Exception):
-                self._attributes[attr_name] = self._program[attr_name]
+                item = self._program[attr_name]
+                if isinstance(item, moderngl.Attribute):
+                    self._attributes[attr_name] = item
 
         _logger.debug(
             "Compiled shader '%s' (%d uniforms, %d attributes)",
@@ -136,14 +147,22 @@ class Shader:
     # -- Render ------------------------------------------------------------
 
     def use(self) -> None:
-        """Bind the shader program for rendering."""
-        self._program.use()
+        """Bind the shader program for rendering.
+
+        No-op in ModernGL 5.12+. VAO.render() automatically uses the
+        program stored in the VAO. Kept for API compatibility.
+        """
+        # ModernGL 5.12+: Program.use() removed; VAO stores program reference.
+        pass
 
     def render(
         self, vao: Any, mode: int | None = None, vertices: int | None = None
     ) -> None:
-        """Render a VAO with this shader bound."""
-        self._program.use()
+        """Render a VAO with this shader.
+
+        ModernGL 5.12+: VAO stores the program; explicit program.use()
+        is not needed. VAO.render() uses the program it was created with.
+        """
         if mode is not None:
             vao.render(mode, vertices=vertices or vao.vertices)
         else:

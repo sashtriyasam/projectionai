@@ -1,0 +1,24 @@
+# ProjectionAI gitleaks configuration.
+#
+# Keeps local `gitleaks detect --no-git` scans in parity with the CI
+# gitleaks-action (which only sees git-tracked files): gitignored vendor
+# and build-artifact directories are excluded here so local scans do not
+# report secrets inside third-party dependencies or build output.
+#
+# The allowlist only ever EXCLUDES paths; it never disables rules for
+# repository source files.
+
+title = "ProjectionAI gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Gitignored vendor/build/test-artifact paths (CI parity)"
+paths = [
+    '''\.venv/''',
+    '''dist/''',
+    '''node_modules/''',
+    '''coverage_html/''',
+    '''\.pytest_cache/''',
+]

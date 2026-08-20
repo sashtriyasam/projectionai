@@ -65,7 +65,7 @@ jobs:
       - name: Run tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: uv run pytest --no-header -q --cov=src/projectionai --cov-report=xml --cov-report=term-missing
+        run: uv run pytest --no-header -q --cov=src/projectionai --cov-report=xml --cov-report=term-missing --cov-fail-under=60
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:

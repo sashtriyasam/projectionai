@@ -4,10 +4,12 @@ Pure generation only — no calibration, no warping. Each pattern is a
 ``PatternSpec`` (metadata) plus a generator callback producing a
 Qt-free pixel buffer represented as ``bytes`` in BGRA8 format, matching
 the byte layout Qt expects for ``QImage.Format_RGB32`` on little-endian
-platforms.
+platforms. :func:`pattern_to_rgba` reorders the same buffers into RGBA
+numpy arrays for GPU texture upload.
 
-Patterns: Checkerboard, Grid, Crosshair, Colour Bars, Alignment Grid,
-Pixel Grid, Gamma Ramp, Safe Border.
+Patterns: Black, White, Red, Green, Blue, Checkerboard, Grid,
+Crosshair, Colour Bars, Alignment Grid, Pixel Grid, Gamma Ramp,
+Safe Border.
 """
 
 from __future__ import annotations
@@ -16,10 +18,17 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 
+import numpy as np
+
 
 class PatternKind(StrEnum):
     """Identifiers for the built-in test patterns."""
 
+    BLACK = "black"
+    WHITE = "white"
+    RED = "red"
+    GREEN = "green"
+    BLUE = "blue"
     CHECKERBOARD = "checkerboard"
     GRID = "grid"
     CROSSHAIR = "crosshair"
@@ -54,6 +63,15 @@ def _bgra(r: int, g: int, b: int, a: int = 255) -> tuple[int, int, int, int]:
 
 def _fill(width: int, height: int, colour: tuple[int, int, int, int]) -> bytes:
     return bytes(colour) * (width * height)
+
+
+def _solid(colour: tuple[int, int, int, int]) -> Callable[[int, int], bytes]:
+    """Build a solid-colour pattern generator for *colour* (BGRA)."""
+
+    def _generate(width: int, height: int) -> bytes:
+        return _fill(width, height, colour)
+
+    return _generate
 
 
 def _checkerboard(width: int, height: int) -> bytes:
@@ -200,6 +218,36 @@ def _safe_border(width: int, height: int) -> bytes:
 
 PATTERNS: tuple[PatternSpec, ...] = (
     PatternSpec(
+        PatternKind.BLACK,
+        "Black",
+        "Solid black — black level and stuck-pixel check.",
+        _solid(_bgra(0, 0, 0)),
+    ),
+    PatternSpec(
+        PatternKind.WHITE,
+        "White",
+        "Solid white — brightness and uniformity check.",
+        _solid(_bgra(255, 255, 255)),
+    ),
+    PatternSpec(
+        PatternKind.RED,
+        "Red",
+        "Solid red — primary colour check.",
+        _solid(_bgra(255, 0, 0)),
+    ),
+    PatternSpec(
+        PatternKind.GREEN,
+        "Green",
+        "Solid green — primary colour check.",
+        _solid(_bgra(0, 255, 0)),
+    ),
+    PatternSpec(
+        PatternKind.BLUE,
+        "Blue",
+        "Solid blue — primary colour check.",
+        _solid(_bgra(0, 0, 255)),
+    ),
+    PatternSpec(
         PatternKind.CHECKERBOARD,
         "Checkerboard",
         "Alternating 64px squares — focus and geometry check.",
@@ -256,3 +304,21 @@ def get_pattern(kind: PatternKind) -> PatternSpec:
         if spec.kind is kind:
             return spec
     raise KeyError(f"Unknown test pattern: {kind!r}")
+
+
+def pattern_to_rgba(kind: PatternKind, width: int, height: int) -> np.ndarray:
+    """Render *kind* into an ``HxWx4`` uint8 RGBA numpy array (Qt-free).
+
+    The pattern generators produce BGRA8 bytes (the layout Qt expects
+    for ``QImage.Format_RGB32``); this helper reorders each pixel to
+    RGBA for GPU texture upload. The returned array owns a writable
+    buffer and can be passed straight to a texture upload.
+    """
+    data = get_pattern(kind).render(width, height)
+    bgra = np.frombuffer(data, dtype=np.uint8).reshape(height, width, 4)
+    rgba = np.empty_like(bgra)
+    rgba[..., 0] = bgra[..., 2]  # R
+    rgba[..., 1] = bgra[..., 1]  # G
+    rgba[..., 2] = bgra[..., 0]  # B
+    rgba[..., 3] = bgra[..., 3]  # A
+    return rgba

@@ -194,6 +194,33 @@ class HardwareManager(Manager):
         else:
             self._display_manager.move_window_to(display_id, window)
 
+    def restore_window(self, window: OutputWindow) -> None:
+        """Exit fullscreen on *window* (leaves its geometry untouched)."""
+        self._display_manager.restore_window(window)
+
+    async def refresh_displays(self) -> tuple[DisplayInfo, ...]:
+        """Re-scan the display topology now (the watcher keeps polling)."""
+        return await self._display_manager.refresh()
+
+    async def switch_live_output(
+        self, display_id: str, window: OutputWindow | None = None
+    ) -> ValidationReport:
+        """Validate, route live, and (when given) fullscreen *window*.
+
+        Combines target selection + live switching into one safe
+        operation; a rejected switch leaves the previous session state
+        untouched.
+        """
+        return await self._output_manager.switch_live_to(display_id, window)
+
+    async def freeze_output(self) -> None:
+        """Freeze the live output (holds the last frame)."""
+        await self._output_manager.freeze()
+
+    async def unfreeze_output(self) -> None:
+        """Resume the frozen output to its pre-freeze state."""
+        await self._output_manager.unfreeze()
+
     # -- Status ---------------------------------------------------------------
 
     def snapshot(self) -> HardwareStatus:

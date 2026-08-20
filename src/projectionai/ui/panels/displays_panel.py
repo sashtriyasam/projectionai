@@ -1,16 +1,20 @@
-"""DisplaysPanel — display topology, validation, and output session (dock).
+"""DisplaysPanel — display topology, validation, and projector output (dock).
 
 Four sections:
 
-- DISPLAYS: every detected display (kind, resolution, connection, primary).
+- DISPLAYS: every detected display with rich info (name, manufacturer/
+  model, mode, kind, connection, primary, live/preview role; supported
+  modes in the tooltip).
 - PROJECTORS: projector-classified displays with live-state coloring.
-- VALIDATION: last validation report (errors / warnings / recommendations).
-- OUTPUT: session controls — begin, preview target, arm, go live,
-  blackout, end, identify.
+- VALIDATION: last validation report + the latest action/event message.
+- OUTPUT: session state and the projector controls — Select as Preview,
+  Select as Live, Identify, Test Pattern, Fullscreen, Blackout, Freeze
+  (toggle), Exit Output, Refresh.
 
 Async manager calls are scheduled through ``run_async``; the panel
-re-renders on every view-model notification and on the main window's
-poll timer.
+re-renders on every view-model notification, on hardware events, and on
+the main window's poll timer. Action failures surface as a user-facing
+message on the view model (rendered in the VALIDATION section).
 """
 
 from __future__ import annotations
@@ -28,9 +32,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from projectionai.core.errors import ProjectionAIError
 from projectionai.hardware.display_validator import ValidationReport
 from projectionai.hardware.errors import OutputSwitchError
-from projectionai.hardware.models import DisplayInfo, DisplayKind
+from projectionai.hardware.models import DisplayConnection, DisplayInfo, DisplayKind
+from projectionai.hardware.output_manager import OutputState
+from projectionai.hardware.patterns import PATTERNS, PatternKind
 from projectionai.ui.panels.base import ViewModelPanel
 from projectionai.ui.panels.common import make_action_button, make_section_header
 from projectionai.ui.theme import (
@@ -51,15 +58,28 @@ _KIND_LABELS = {
     DisplayKind.UNKNOWN: "unknown",
 }
 
+_CONNECTION_LABELS = {
+    DisplayConnection.HDMI: "HDMI",
+    DisplayConnection.DISPLAY_PORT: "DisplayPort",
+    DisplayConnection.VGA: "VGA",
+    DisplayConnection.DVI: "DVI",
+    DisplayConnection.USB_C: "USB-C",
+    DisplayConnection.THUNDERBOLT: "Thunderbolt",
+    DisplayConnection.WIRELESS: "wireless",
+    DisplayConnection.VIRTUAL: "virtual",
+    DisplayConnection.UNKNOWN: "unknown",
+}
+
 
 class DisplaysPanel(ViewModelPanel):
-    """Display topology + validation + output session dock panel."""
+    """Display topology + validation + projector output dock panel."""
 
     panel_id = "displays"
 
     def __init__(self, parent: Any = None) -> None:
         super().__init__(parent)
         self.setObjectName("displaysPanel")
+        self._failed_report: ValidationReport | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -85,6 +105,11 @@ class DisplaysPanel(ViewModelPanel):
         self.validation_label.setObjectName("validationLabel")
         self.validation_label.setWordWrap(True)
         root.addWidget(self.validation_label)
+        self.message_label = QLabel("")
+        self.message_label.setObjectName("actionMessageLabel")
+        self.message_label.setWordWrap(True)
+        self.message_label.setStyleSheet(f"color: {WARN_YELLOW};")
+        root.addWidget(self.message_label)
 
         # -- Output session ------------------------------------------------------
         root.addWidget(make_section_header("OUTPUT"))
@@ -105,23 +130,52 @@ class DisplaysPanel(ViewModelPanel):
         preview_row.addWidget(self.preview_combo, stretch=1)
         root.addLayout(preview_row)
 
+        pattern_row = QHBoxLayout()
+        pattern_row.setContentsMargins(4, 0, 4, 0)
+        pattern_row.setSpacing(4)
+        pattern_label = QLabel("Pattern")
+        pattern_label.setObjectName("propLabel")
+        self.pattern_combo = QComboBox()
+        self.pattern_combo.setObjectName("patternCombo")
+        for spec in PATTERNS:
+            if spec.kind is PatternKind.BLACK:
+                continue  # blackout covers solid black
+            self.pattern_combo.addItem(spec.name, spec.kind)
+        pattern_row.addWidget(pattern_label)
+        pattern_row.addWidget(self.pattern_combo, stretch=1)
+        pattern_row.addWidget(make_action_button("Test Pattern", self._test_pattern))
+        root.addLayout(pattern_row)
+
         actions_row1 = QHBoxLayout()
-        actions_row1.setContentsMargins(4, 0, 4, 0)
+        actions_row1.setContentsMargins(4, 4, 4, 0)
         actions_row1.setSpacing(4)
-        actions_row1.addWidget(make_action_button("Begin", self._begin_session))
-        actions_row1.addWidget(make_action_button("Arm", self._arm_session))
-        actions_row1.addWidget(make_action_button("Go Live", self._go_live))
+        actions_row1.addWidget(
+            make_action_button("Select as Preview", self._select_preview)
+        )
+        actions_row1.addWidget(make_action_button("Select as Live", self._select_live))
+        actions_row1.addWidget(make_action_button("Identify", self._identify))
         actions_row1.addStretch(1)
         root.addLayout(actions_row1)
 
         actions_row2 = QHBoxLayout()
-        actions_row2.setContentsMargins(4, 4, 4, 4)
+        actions_row2.setContentsMargins(4, 4, 4, 0)
         actions_row2.setSpacing(4)
+        actions_row2.addWidget(make_action_button("Fullscreen", self._fullscreen))
         actions_row2.addWidget(make_action_button("Blackout", self._blackout))
-        actions_row2.addWidget(make_action_button("End", self._end_session))
-        actions_row2.addWidget(make_action_button("Identify", self._identify))
+        self.freeze_button = make_action_button("Freeze", self._freeze_toggle)
+        self.freeze_button.setCheckable(True)
+        self.freeze_button.setObjectName("freezeButton")
+        actions_row2.addWidget(self.freeze_button)
         actions_row2.addStretch(1)
         root.addLayout(actions_row2)
+
+        actions_row3 = QHBoxLayout()
+        actions_row3.setContentsMargins(4, 4, 4, 4)
+        actions_row3.setSpacing(4)
+        actions_row3.addWidget(make_action_button("Exit Output", self._exit_output))
+        actions_row3.addWidget(make_action_button("Refresh", self._refresh))
+        actions_row3.addStretch(1)
+        root.addLayout(actions_row3)
 
     # -- Refresh -------------------------------------------------------------
 
@@ -147,17 +201,22 @@ class DisplaysPanel(ViewModelPanel):
         self.display_list.clear()
         self.projector_list.clear()
         self.validation_label.setText("No report yet")
+        self.message_label.setText("")
         self.session_label.setText("● IDLE")
         self.session_label.setStyleSheet(f"color: {STATE_COLORS['idle']};")
         self.preview_combo.clear()
+        self.freeze_button.setChecked(False)
+        self._failed_report = None
 
     def _refresh_displays(self) -> None:
         vm = self._viewmodel
         self.display_list.clear()
         if vm is None:
             return
+        live_id = vm.live_display_id
+        preview_id = vm.preview_display_id
         for display in vm.displays():
-            self.display_list.addItem(self._display_item(display))
+            self.display_list.addItem(self._display_item(display, live_id, preview_id))
 
     def _refresh_projectors(self) -> None:
         vm = self._viewmodel
@@ -165,17 +224,23 @@ class DisplaysPanel(ViewModelPanel):
         if vm is None:
             return
         live_id = vm.live_display_id
+        preview_id = vm.preview_display_id
         for projector in vm.projectors():
             self.projector_list.addItem(
-                self._projector_item(projector, projector.display_id == live_id)
+                self._projector_item(projector, live_id, preview_id)
             )
 
     def _refresh_validation(self) -> None:
         vm = self._viewmodel
         if vm is None:
             return
-        report = vm.validate()
+        # A rejected switch keeps its report visible across refreshes
+        # (vm.validate() would show the stale pre-switch report).
+        report = (
+            self._failed_report if self._failed_report is not None else vm.validate()
+        )
         self._render_report(report)
+        self.message_label.setText(vm.message or "")
 
     def _refresh_session(self) -> None:
         vm = self._viewmodel
@@ -184,12 +249,13 @@ class DisplaysPanel(ViewModelPanel):
         state = vm.output_state.value
         self.session_label.setText(f"● {state.upper()}")
         self.session_label.setStyleSheet(f"color: {STATE_COLORS.get(state, TEXT_DIM)};")
+        self.freeze_button.setChecked(vm.output_state is OutputState.FREEZE)
 
         self.preview_combo.blockSignals(True)
         self.preview_combo.clear()
         self.preview_combo.addItem("(none)", None)
         for display in vm.displays():
-            label = self._display_label(display)
+            label = self._display_label(display, None, None)
             self.preview_combo.addItem(label, display.display_id)
         index = self.preview_combo.findData(vm.preview_display_id)
         if index >= 0:
@@ -199,26 +265,60 @@ class DisplaysPanel(ViewModelPanel):
     # -- Item builders --------------------------------------------------------
 
     @staticmethod
-    def _display_label(display: DisplayInfo) -> str:
-        mode = display.mode_label
-        kind = _KIND_LABELS.get(display.kind, "unknown")
-        primary = " · primary" if display.is_primary else ""
-        return f"{display.name}  ·  {mode}  ·  {kind}{primary}"
+    def _display_label(
+        display: DisplayInfo, live_id: str | None, preview_id: str | None
+    ) -> str:
+        parts = [display.name]
+        device = "/".join(
+            part for part in (display.manufacturer, display.model) if part
+        )
+        if device:
+            parts.append(device)
+        parts.append(display.mode_label)
+        parts.append(_KIND_LABELS.get(display.kind, "unknown"))
+        parts.append(_CONNECTION_LABELS.get(display.connection, "unknown"))
+        if display.is_primary:
+            parts.append("primary")
+        if display.display_id == live_id:
+            parts.append("LIVE")
+        elif display.display_id == preview_id:
+            parts.append("PREVIEW")
+        return " · ".join(parts)
 
     @classmethod
-    def _display_item(cls, display: DisplayInfo) -> QListWidgetItem:
-        item = QListWidgetItem(cls._display_label(display))
+    def _display_item(
+        cls, display: DisplayInfo, live_id: str | None, preview_id: str | None
+    ) -> QListWidgetItem:
+        item = QListWidgetItem(cls._display_label(display, live_id, preview_id))
         item.setData(_USER_ROLE, display.display_id)
         item.setForeground(QColor(TEXT_DIM))
+        item.setToolTip(cls._display_tooltip(display))
         return item
 
     @classmethod
-    def _projector_item(cls, display: DisplayInfo, is_live: bool) -> QListWidgetItem:
-        state = "LIVE" if is_live else display.connection.value
+    def _projector_item(
+        cls, display: DisplayInfo, live_id: str | None, preview_id: str | None
+    ) -> QListWidgetItem:
+        if display.display_id == live_id:
+            state = "LIVE"
+            colour = LIVE_RED
+        elif display.display_id == preview_id:
+            state = "PREVIEW"
+            colour = WARN_YELLOW
+        else:
+            state = _CONNECTION_LABELS.get(display.connection, "unknown")
+            colour = TEXT_DIM
         item = QListWidgetItem(f"{display.name}  ·  {display.mode_label}  ·  {state}")
         item.setData(_USER_ROLE, display.display_id)
-        item.setForeground(QColor(LIVE_RED if is_live else TEXT_DIM))
+        item.setForeground(QColor(colour))
+        item.setToolTip(cls._display_tooltip(display))
         return item
+
+    @staticmethod
+    def _display_tooltip(display: DisplayInfo) -> str:
+        modes = display.supported_modes or (display.current_mode,)
+        mode_lines = "\n".join(mode.label for mode in modes)
+        return f"{display.display_id}\nSupported modes:\n{mode_lines}"
 
     # -- Validation rendering ----------------------------------------------------
 
@@ -265,45 +365,63 @@ class DisplaysPanel(ViewModelPanel):
         display_id = cast(str | None, self.preview_combo.itemData(index))
         run_async(vm.set_preview(display_id))
 
-    def _begin_session(self) -> None:
+    def _select_preview(self) -> None:
         vm = self._viewmodel
-        if vm is None:
+        display_id = self._selected_display_id()
+        if vm is None or display_id is None:
             return
-        preview = self.preview_combo.currentData()
-        run_async(vm.begin_session(cast(str | None, preview)))
+        run_async(self._safe(vm.select_preview(display_id)))
 
-    def _arm_session(self) -> None:
+    def _select_live(self) -> None:
         vm = self._viewmodel
-        if vm is None:
+        display_id = self._selected_display_id()
+        if vm is None or display_id is None:
             return
-        run_async(vm.arm())
+        run_async(self._safe(vm.select_live(display_id)))
 
-    def _go_live(self) -> None:
+    def _test_pattern(self) -> None:
         vm = self._viewmodel
-        if vm is None:
+        display_id = self._selected_display_id()
+        if vm is None or display_id is None:
             return
-        run_async(self._go_live_safe(vm))
+        kind = cast(PatternKind | None, self.pattern_combo.currentData())
+        if kind is None:
+            return
+        run_async(self._safe(vm.test_pattern(display_id, kind)))
 
-    async def _go_live_safe(self, vm: Any) -> None:
-        try:
-            await vm.go_live()
-        except OutputSwitchError as exc:
-            report = exc.report
-            if report is not None:
-                self._render_report(report)
-            self.validation_label.setText(f"✗ Live rejected — {exc}")
+    def _fullscreen(self) -> None:
+        vm = self._viewmodel
+        display_id = self._selected_display_id()
+        if vm is None or display_id is None:
+            return
+        run_async(self._safe(vm.enter_fullscreen(display_id)))
 
     def _blackout(self) -> None:
         vm = self._viewmodel
         if vm is None:
             return
-        run_async(vm.blackout())
+        run_async(self._safe(vm.blackout()))
 
-    def _end_session(self) -> None:
+    def _freeze_toggle(self) -> None:
         vm = self._viewmodel
         if vm is None:
             return
-        run_async(vm.end_session())
+        run_async(self._safe(vm.toggle_freeze()))
+        # Qt toggles the checkable button on click; revert it to the
+        # view-model state until the async toggle refreshes the panel.
+        self.freeze_button.setChecked(vm.output_state is OutputState.FREEZE)
+
+    def _exit_output(self) -> None:
+        vm = self._viewmodel
+        if vm is None:
+            return
+        run_async(self._safe(vm.exit_output()))
+
+    def _refresh(self) -> None:
+        vm = self._viewmodel
+        if vm is None:
+            return
+        run_async(self._safe(vm.refresh_displays()))
 
     def _identify(self) -> None:
         vm = self._viewmodel
@@ -311,3 +429,20 @@ class DisplaysPanel(ViewModelPanel):
         if vm is None or display_id is None:
             return
         run_async(vm.identify(display_id))
+
+    async def _safe(self, coro: Any) -> None:
+        """Run an action, surfacing failures as a view-model message."""
+        vm = self._viewmodel
+        try:
+            await coro
+            self._failed_report = None
+            if vm is not None:
+                vm.clear_message()
+        except OutputSwitchError as exc:
+            if exc.report is not None:
+                self._failed_report = exc.report
+            if vm is not None:
+                vm.set_message(f"✗ {exc}")
+        except ProjectionAIError as exc:
+            if vm is not None:
+                vm.set_message(f"✗ {exc}")
