@@ -367,6 +367,7 @@ class CameraManager(Manager):
 
     @override
     async def _on_initialize(self) -> None:
+        self._shutting_down = False
         try:
             infos = await self.list_cameras()
         except CameraError:

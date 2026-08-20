@@ -554,6 +554,21 @@ async def test_shutdown_closes_open_cameras(event_bus: FakeEventBus) -> None:
     assert not manager.is_open("mock-0")
 
 
+async def test_reinitialize_after_shutdown(event_bus: FakeEventBus) -> None:
+    """CameraManager can be reinitialized after shutdown and used normally."""
+    manager = CameraManager(event_bus, provider=MockCameraProvider(camera_count=1))
+    await manager.initialize()
+    await manager.shutdown()
+    # Reinitialize should work (previously failed because _shutting_down was not reset)
+    await manager.initialize()
+    # Verify the manager is fully functional after reinitialization
+    await manager.open_camera("mock-0")
+    frame = await manager.capture_frame("mock-0")
+    assert frame.camera_id == "mock-0"
+    await manager.shutdown()
+    await _flush()
+
+
 # -- Mock camera backend ----------------------------------------------------
 
 
