@@ -311,6 +311,10 @@ class OutputManager(Manager):
     async def unfreeze(self) -> None:
         """Resume from ``FREEZE`` to the state it was frozen from.
 
+        When the frozen state was ``LIVE`` but the live display has
+        since disconnected, falls back to ``BLACKOUT`` instead of
+        reporting a live route that no longer exists.
+
         Raises:
             OutputSessionError: When the session is not frozen (the
                 state is left unchanged).
@@ -324,6 +328,20 @@ class OutputManager(Manager):
             )
         restored = self._pre_freeze_state or OutputState.LIVE
         self._pre_freeze_state = None
+        if restored is OutputState.LIVE:
+            live_id = session.live_display_id
+            if live_id is None or not self._display_manager.has(live_id):
+                # The display that was live is gone: reporting LIVE would
+                # lie (the display manager has already cleared the live
+                # route). Fall back to BLACKOUT so the session state
+                # matches the physical output.
+                restored = OutputState.BLACKOUT
+                self._display_manager.set_live_output(None)
+            else:
+                # Re-apply the route so the recorded live display and the
+                # display manager's live output stay aligned (no-op when
+                # the route never drifted).
+                self._display_manager.set_live_output(live_id)
         self._record(
             OutputSession(
                 session_id=session.session_id,
@@ -350,6 +368,15 @@ class OutputManager(Manager):
         prior session state and history untouched.
         """
         original = self._session
+        display = self._display_manager.get(display_id)  # raises if unknown
+        if not display.capabilities.supports_fullscreen:
+            # The facade must not bypass the fullscreen capability gate:
+            # a live switch moves the output window fullscreen on the
+            # display, so a display that cannot go fullscreen is not a
+            # valid live target here.
+            raise OutputSessionError(
+                f"{display.name!r} does not support fullscreen output."
+            )
         try:
             await self.set_live_target(display_id)
             report = await self.go_live()
@@ -363,9 +390,21 @@ class OutputManager(Manager):
         return report
 
     async def set_live_target(self, display_id: str) -> None:
-        """Set the session's live target (no switch yet)."""
+        """Set the session's live target (no switch yet).
+
+        Rejected while the session is frozen: the live target of a
+        frozen session must not change (unfreeze first), otherwise the
+        recorded target could diverge from the actual live route.
+
+        Raises:
+            OutputSessionError: When the session is frozen.
+        """
         self._require_initialized()
         session = self._require_session()
+        if session.state is OutputState.FREEZE:
+            raise OutputSessionError(
+                "Cannot change the live target while the output is frozen."
+            )
         self._display_manager.get(display_id)  # raises if unknown
         self._record(
             OutputSession(

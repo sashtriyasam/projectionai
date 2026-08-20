@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace as dataclass_replace
 
 import pytest
 
@@ -25,6 +26,7 @@ from projectionai.hardware.events import (
     OutputSessionStarted,
     OutputUnfrozen,
 )
+from projectionai.hardware.models import DisplayCapabilities
 from projectionai.hardware.output_manager import OutputManager, OutputState
 from projectionai.infrastructure.display.mock_provider import (
     MockDisplayProvider,
@@ -361,6 +363,42 @@ async def test_unfreeze_restores_live(output_manager: object) -> None:
     assert unfrozen.restored_state is OutputState.LIVE
 
 
+async def test_unfreeze_reapplies_route_to_recorded_live_display(
+    output_manager: object,
+) -> None:
+    """Unfreeze reconciles the live route with the recorded target."""
+    om, dm, _provider = output_manager  # type: ignore[misc]
+    await om.begin_session()
+    await om.go_live()  # auto-routes live to the projector ("disp-2")
+    await om.freeze()
+    # Route drifts while frozen: unfreeze must re-apply the recorded
+    # target instead of trusting the current route.
+    dm.set_live_output("disp-1")
+    await om.unfreeze()
+    await _flush()
+    assert om.state is OutputState.LIVE
+    assert om.session is not None
+    assert om.session.live_display_id == "disp-2"
+    assert dm.live_output is not None
+    assert dm.live_output.display_id == "disp-2"
+
+
+async def test_set_live_target_while_frozen_raises(output_manager: object) -> None:
+    """A frozen session's live target must not change."""
+    om, dm, _provider = output_manager  # type: ignore[misc]
+    await om.begin_session()
+    await om.go_live()  # recorded live target = "disp-2" (the projector)
+    await om.freeze()
+    with pytest.raises(OutputSessionError, match="frozen"):
+        await om.set_live_target("disp-1")
+    # State, recorded target, and route are all untouched.
+    assert om.state is OutputState.FREEZE
+    assert om.session is not None
+    assert om.session.live_display_id == "disp-2"
+    assert dm.live_output is not None
+    assert dm.live_output.display_id == "disp-2"
+
+
 async def test_unfreeze_from_blackout_restores_blackout(
     output_manager: object,
 ) -> None:
@@ -450,6 +488,55 @@ async def test_switch_live_to_unknown_display_raises(output_manager: object) -> 
         await om.switch_live_to("ghost", window)
     assert not window.fullscreen
     assert om.state is OutputState.IDLE
+
+
+async def test_switch_live_to_rejects_display_without_fullscreen(
+    event_bus: FakeEventBus,
+) -> None:
+    """The hardware facade must not bypass the fullscreen capability gate."""
+    projector = make_display("pj-1", 1, "Epson EB-2250U", manufacturer="Epson")
+    projector = dataclass_replace(
+        projector,
+        capabilities=DisplayCapabilities(supports_fullscreen=False),
+    )
+    provider = MockDisplayProvider([make_display("mon-1", 0, "Dell U2720Q"), projector])
+    dm = DisplayManager(event_bus, provider=provider)
+    await dm.initialize()
+    om = OutputManager(event_bus, display_manager=dm)
+    await om.initialize()
+    try:
+        await om.begin_session()
+        with pytest.raises(OutputSessionError, match="does not support fullscreen"):
+            await om.switch_live_to("pj-1")
+        assert om.state is OutputState.IDLE  # nothing switched
+        assert dm.live_output is None
+    finally:
+        await om.shutdown()
+        await dm.shutdown()
+
+
+async def test_unfreeze_falls_back_to_blackout_when_live_display_gone(
+    output_manager: object,
+) -> None:
+    om, dm, provider = output_manager  # type: ignore[misc]
+    await om.begin_session()
+    await om.go_live()
+    await om.freeze()
+
+    # The live display disappears while frozen; the display manager
+    # refresh clears the live route.
+    provider.disconnect("disp-2")
+    await dm.refresh()
+    assert dm.live_output is None
+
+    await om.unfreeze()
+    await _flush()
+
+    # Unfreeze must not report LIVE for a route that no longer exists.
+    assert om.state is OutputState.BLACKOUT
+    assert dm.live_output is None
+    unfrozen = next(ev for ev in om.event_bus.emitted if isinstance(ev, OutputUnfrozen))
+    assert unfrozen.restored_state is OutputState.BLACKOUT
 
 
 # -- History --------------------------------------------------------------------

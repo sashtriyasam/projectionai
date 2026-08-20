@@ -62,11 +62,18 @@ HardwareManager facade ──► DisplayManager + OutputManager
 3. **Blackout** cuts the session live output and blacks the window.
 4. **Freeze** (toggle) holds the last rendered frame; unfreeze restores
    the pre-freeze state: the last pattern when the session was live,
-   black when it was frozen while blacked out (or no pattern was set).
+   black when it was frozen while blacked out. Unfreezing a live
+   session with no test pattern set falls back to **Blackout** — the
+   session never reports live while the screen stays black.
 5. **Exit Output** ends the session, restores the window to normal and
    hides it. ESC on the output window does the same.
 
-## Safety Gates (all in the view model, before touching hardware)
+## Safety Gates
+
+Two layers guard every live switch: the view model validates before
+touching hardware, and the output manager re-checks independently.
+
+**View-model layer** (before any hardware mutation):
 
 | Gate                            | Raises                         |
 | ------------------------------- | ------------------------------ |
@@ -75,6 +82,13 @@ HardwareManager facade ──► DisplayManager + OutputManager
 | No output window attached       | `OutputSessionError`           |
 | Live session on another display | `OutputSessionError`           |
 | Switch rejected by validation   | `OutputSwitchError` (+ report) |
+
+**Output manager layer** (`OutputManager.switch_live_to`, defense in
+depth): the display must exist (`DisplayNotFoundError`) and be
+fullscreen-capable — `supports_fullscreen` is rejected here too, so a
+facade cannot bypass the fullscreen gate. A validation rejection rolls
+back the target transition, leaving the prior session state and
+history untouched.
 
 The primary monitor is treated like any other display: it only becomes
 fullscreen when the user selects it. MainWindow itself is never made
@@ -128,8 +142,9 @@ real hardware and is not covered in CI.
 - `display.capabilities.supports_fullscreen` gates fullscreen moves; a
   provider that cannot report it will reject the action.
 - Freeze/unfreeze restores the last test pattern, or blacks the output
-  window when the session was frozen while blacked out or when no test
-  pattern is set; camera/AI content routing to the output window is a
-  future phase.
+  window when the session was frozen while blacked out; unfreezing a
+  live session without a test pattern cuts output (BLACKOUT) rather
+  than reporting live with a black window. Camera/AI content routing
+  to the output window is a future phase.
 - Multi-projector simultaneous output is out of scope (one live
   display per session; switching requires exiting or switching live).

@@ -17,7 +17,7 @@ import logging
 from typing import TYPE_CHECKING, Any, override
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QKeyEvent, QSurfaceFormat
+from PySide6.QtGui import QKeyEvent, QOpenGLFunctions, QSurfaceFormat
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 from projectionai.infrastructure.renderer.output_content import (
@@ -34,6 +34,10 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 _ESC_KEY = Qt.Key.Key_Escape
+
+# OpenGL clear mask (glClear(GL_COLOR_BUFFER_BIT)) — PySide6 does not
+# expose the constant, so keep the standard value locally.
+_GL_COLOR_BUFFER_BIT = 0x4000
 
 
 class GLOutputWindow(QOpenGLWidget):
@@ -58,6 +62,9 @@ class GLOutputWindow(QOpenGLWidget):
         self.setCursor(Qt.CursorShape.BlankCursor)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        # Strong focus so key events (the ESC exit hook) reach the
+        # window once it is fullscreen and activated.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self._content: OutputContent = OutputContent.black()
         self._gl_ready: bool = False
@@ -67,6 +74,13 @@ class GLOutputWindow(QOpenGLWidget):
         self._texture: Texture | None = None
         self._texture_key: tuple[Any, ...] | None = None
         self._black_texture: Texture | None = None
+
+    # -- Properties --------------------------------------------------------
+
+    @property
+    def gl_ready(self) -> bool:
+        """Whether the GL context and renderer are fully initialized."""
+        return self._gl_ready
 
     # -- Content -----------------------------------------------------------
 
@@ -108,11 +122,15 @@ class GLOutputWindow(QOpenGLWidget):
                 RenderContext,
             )
 
-            render_ctx = RenderContext.from_standalone()
+            render_ctx = RenderContext.from_widget(self)
             self._ctx = render_ctx.ctx
             width = max(self.width(), 1)
             height = max(self.height(), 1)
-            self._target = ScreenTarget(self._ctx, width, height)
+            # QOpenGLWidget presents its private FBO, not FBO 0 — bind it
+            # so rendered patterns actually reach the display.
+            self._target = ScreenTarget(
+                self._ctx, width, height, fbo_id=self.defaultFramebufferObject()
+            )
             self._pass = PatternPass()
             self._pass.target = self._target
             self._pass.setup(self._ctx, width, height)
@@ -129,9 +147,42 @@ class GLOutputWindow(QOpenGLWidget):
     @override
     def paintGL(self) -> None:
         if not self._gl_ready or self._pass is None or self._ctx is None:
-            return  # black stays black
+            self._clear_black()  # never show stale/undefined content
+            return
+        # Qt may have recreated its FBO (resize / screen change) since the
+        # last frame — always target the *current* widget FBO.
+        if self._target is not None:
+            self._target.set_fbo_id(self.defaultFramebufferObject())
         self._ensure_texture()
         self._pass.render(self._ctx, None, None)
+
+    def _clear_black(self) -> None:
+        """Fill the framebuffer with opaque black.
+
+        The window paints no system background (WA_NoSystemBackground),
+        so while GL is not ready the framebuffer could otherwise display
+        stale/undefined content; clear it explicitly instead.
+        """
+        context = self.context()
+        if context is None:
+            return
+        try:
+            gl = QOpenGLFunctions(context)
+            gl.glClearColor(0.0, 0.0, 0.0, 1.0)
+            gl.glClear(_GL_COLOR_BUFFER_BIT)
+        except Exception:
+            _logger.exception("GL clear failed; window stays black")
+
+    @override
+    def showFullScreen(self) -> None:
+        """Fullscreen and activate so keyboard input reaches the window.
+
+        Qt does not guarantee focus lands on this borderless window when
+        it fullscreens; without focus the ESC exit hook never fires.
+        """
+        super().showFullScreen()
+        self.activateWindow()
+        self.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
 
     @override
     def keyPressEvent(self, event: QKeyEvent) -> None:
@@ -167,6 +218,11 @@ class GLOutputWindow(QOpenGLWidget):
         key = (content.pattern_kind, width, height)
         if key != self._texture_key:
             rgba = pattern_to_rgba(content.pattern_kind, width, height)
+            # Image row 0 is the *top* of the pattern, but texture v=0
+            # maps to the bottom of the quad; flip rows at upload so the
+            # projector shows the pattern upright (not vertically
+            # inverted for asymmetric patterns).
+            rgba = rgba[::-1].copy()
             self._replace_texture(
                 key,
                 Texture.from_array(self._ctx, rgba, components=4, filter="nearest"),

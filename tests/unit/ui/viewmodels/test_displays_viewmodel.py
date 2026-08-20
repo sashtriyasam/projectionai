@@ -27,6 +27,12 @@ from projectionai.hardware.events import (
     DisplayConnected,
     DisplayDisconnected,
     DisplayLiveOutputChanged,
+    DisplayPreviewOutputChanged,
+    OutputBlackout,
+    OutputFrozen,
+    OutputLiveStarted,
+    OutputSessionEnded,
+    OutputUnfrozen,
 )
 from projectionai.hardware.hardware_manager import HardwareManager
 from projectionai.hardware.models import (
@@ -41,7 +47,7 @@ from projectionai.ui.viewmodels.displays import DisplaysViewModel
 
 
 class _FakeEventBus:
-    """Records subscriptions; publish invokes handlers synchronously."""
+    """Records subscriptions; publish awaits async handlers like the real bus."""
 
     def __init__(self) -> None:
         self._handlers: dict[type[Any], list[Any]] = {}
@@ -49,9 +55,16 @@ class _FakeEventBus:
     def subscribe(self, event_type: type[Any], handler: Any) -> None:
         self._handlers.setdefault(event_type, []).append(handler)
 
+    def unsubscribe(self, event_type: type[Any], handler: Any) -> None:
+        handlers = self._handlers.get(event_type)
+        if handlers is not None and handler in handlers:
+            handlers.remove(handler)
+
     def publish(self, event: Any) -> None:
         for handler in self._handlers.get(type(event), []):
-            handler(event)
+            result = handler(event)
+            if asyncio.iscoroutine(result):
+                asyncio.run(result)
 
 
 class _FakeSession:
@@ -121,6 +134,7 @@ class _FakeHardware:
         self.identify_calls: list[str] = []
         self.begin_calls: list[str | None] = []
         self.preview_calls: list[str | None] = []
+        self.switch_error: BaseException | None = None
 
     # -- Topology ------------------------------------------------------------
 
@@ -213,6 +227,8 @@ class _FakeHardware:
         self, display_id: str, window: Any
     ) -> ValidationReport:
         self.switch_calls.append((display_id, window))
+        if self.switch_error is not None:
+            raise self.switch_error
         if not self.report.is_ok:
             raise OutputSwitchError("Switch rejected", self.report)
         if self.session is not None:
@@ -227,6 +243,9 @@ class _FakeHardware:
 
     async def emergency_blackout(self) -> None:
         self.blackout_calls += 1
+        if self.session is not None:
+            # Mirror the real manager: blackout cuts the session state.
+            self.session.state = OutputState.BLACKOUT
 
     async def freeze_output(self) -> None:
         if self.session is None:
@@ -268,6 +287,18 @@ def _projector(display_id: str, index: int) -> DisplayInfo:
     return _display(display_id, index, kind=DisplayKind.PROJECTOR)
 
 
+def _rejecting_report() -> ValidationReport:
+    return ValidationReport(
+        issues=(
+            ValidationIssue(
+                severity=ValidationSeverity.ERROR,
+                code="no_renderer",
+                message="Renderer not ready",
+            ),
+        )
+    )
+
+
 class TestSelectLive:
     async def test_select_live_starts_session_and_switches(self, qapp: Any) -> None:
         hardware = _FakeHardware((_projector("p1", 0),))
@@ -287,12 +318,13 @@ class TestSelectLive:
         hardware = _FakeHardware((_projector("p1", 0),))
         hardware.session = _FakeSession(OutputState.PREVIEW)
         vm = _make_vm(hardware)
-        vm.attach_output_window(_FakeWindow())
+        window = _FakeWindow()
+        vm.attach_output_window(window)
 
         await vm.select_live("p1")
 
         assert hardware.begin_calls == []
-        assert hardware.switch_calls == [("p1", vm._window)]
+        assert hardware.switch_calls == [("p1", window)]
 
     async def test_select_live_unknown_display_raises(self, qapp: Any) -> None:
         hardware = _FakeHardware((_projector("p1", 0),))
@@ -316,20 +348,83 @@ class TestSelectLive:
 
     async def test_select_live_propagates_switch_rejection(self, qapp: Any) -> None:
         hardware = _FakeHardware((_projector("p1", 0),))
-        hardware.report = ValidationReport(
-            issues=(
-                ValidationIssue(
-                    severity=ValidationSeverity.ERROR,
-                    code="no_renderer",
-                    message="Renderer not ready",
-                ),
-            )
-        )
+        hardware.report = _rejecting_report()
         vm = _make_vm(hardware)
         vm.attach_output_window(_FakeWindow())
 
         with pytest.raises(OutputSwitchError):
             await vm.select_live("p1")
+
+    async def test_select_live_rejects_unsupported_display(self, qapp: Any) -> None:
+        hardware = _FakeHardware((_display("m1", 0, supports_fullscreen=False),))
+        vm = _make_vm(hardware)
+        vm.attach_output_window(_FakeWindow())
+
+        with pytest.raises(OutputSessionError, match="does not support fullscreen"):
+            await vm.select_live("m1")
+
+        assert hardware.begin_calls == []
+        assert hardware.switch_calls == []
+        assert hardware.session is None
+
+    async def test_select_live_cleans_up_session_when_switch_rejected(
+        self, qapp: Any
+    ) -> None:
+        hardware = _FakeHardware((_projector("p1", 0),))
+        hardware.report = _rejecting_report()
+        vm = _make_vm(hardware)
+        window = _FakeWindow()
+        vm.attach_output_window(window)
+
+        with pytest.raises(OutputSwitchError):
+            await vm.select_live("p1")
+
+        # The session started for the switch must not be left behind.
+        assert hardware.session is None
+        assert hardware.switch_calls == [("p1", window)]
+
+    async def test_select_live_keeps_existing_session_when_switch_rejected(
+        self, qapp: Any
+    ) -> None:
+        hardware = _FakeHardware((_projector("p1", 0),))
+        hardware.session = _FakeSession(OutputState.PREVIEW)
+        hardware.report = _rejecting_report()
+        vm = _make_vm(hardware)
+        vm.attach_output_window(_FakeWindow())
+
+        with pytest.raises(OutputSwitchError):
+            await vm.select_live("p1")
+
+        # A pre-existing session survives the failed switch.
+        assert hardware.session is not None
+
+    async def test_select_live_rolls_back_session_on_any_switch_failure(
+        self, qapp: Any
+    ) -> None:
+        hardware = _FakeHardware((_projector("p1", 0),))
+        hardware.switch_error = RuntimeError("hardware blew up")
+        vm = _make_vm(hardware)
+        vm.attach_output_window(_FakeWindow())
+
+        with pytest.raises(RuntimeError, match="hardware blew up"):
+            await vm.select_live("p1")
+
+        # The session started for the switch must not be left behind.
+        assert hardware.session is None
+
+    async def test_select_live_rolls_back_session_on_cancellation(
+        self, qapp: Any
+    ) -> None:
+        hardware = _FakeHardware((_projector("p1", 0),))
+        hardware.switch_error = asyncio.CancelledError()
+        vm = _make_vm(hardware)
+        vm.attach_output_window(_FakeWindow())
+
+        with pytest.raises(asyncio.CancelledError):
+            await vm.select_live("p1")
+
+        # Cancellation must not leave the created session behind.
+        assert hardware.session is None
 
 
 class TestEnterFullscreen:
@@ -367,6 +462,20 @@ class TestEnterFullscreen:
 
         assert hardware.move_calls == []
 
+    async def test_enter_fullscreen_rejects_frozen_live_conflict(
+        self, qapp: Any
+    ) -> None:
+        """A frozen session still owns the live route — it conflicts."""
+        hardware = _FakeHardware((_projector("p1", 0), _projector("p2", 1)))
+        hardware.session = _FakeSession(OutputState.FREEZE, live_display_id="p1")
+        vm = _make_vm(hardware)
+        vm.attach_output_window(_FakeWindow())
+
+        with pytest.raises(OutputSessionError, match="another display"):
+            await vm.enter_fullscreen("p2")
+
+        assert hardware.move_calls == []
+
 
 class TestTestPattern:
     async def test_test_pattern_renders_through_window(self, qapp: Any) -> None:
@@ -391,6 +500,19 @@ class TestTestPattern:
 
         assert hardware.move_calls == []
         assert hardware.begin_calls == []
+
+    async def test_test_pattern_rejects_frozen_live_conflict(self, qapp: Any) -> None:
+        hardware = _FakeHardware((_projector("p1", 0), _projector("p2", 1)))
+        hardware.session = _FakeSession(OutputState.FREEZE, live_display_id="p1")
+        vm = _make_vm(hardware)
+        window = _FakeWindow()
+        vm.attach_output_window(window)
+
+        with pytest.raises(OutputSessionError, match="another display"):
+            await vm.test_pattern("p2", PatternKind.COLOUR_BARS)
+
+        assert hardware.move_calls == []
+        assert window.patterns == []
 
 
 class TestBlackout:
@@ -441,14 +563,22 @@ class TestFreeze:
         vm = _make_vm(hardware)
         window = _FakeWindow()
         vm.attach_output_window(window)
-        vm._last_pattern = PatternKind.COLOUR_BARS
+        await vm.test_pattern("p1", PatternKind.COLOUR_BARS)
 
         await vm.unfreeze()
 
         assert hardware.unfreeze_calls == 1
-        assert window.patterns == [PatternKind.COLOUR_BARS]
+        # Applied once by the setup action, once by the unfreeze restore.
+        assert window.patterns == [
+            PatternKind.COLOUR_BARS,
+            PatternKind.COLOUR_BARS,
+        ]
+        assert vm.last_pattern is PatternKind.COLOUR_BARS
 
-    async def test_unfreeze_without_last_pattern_blacks(self, qapp: Any) -> None:
+    async def test_unfreeze_without_last_pattern_blackouts_coherently(
+        self, qapp: Any
+    ) -> None:
+        """Live without a pattern must fall back to BLACKOUT, not lie."""
         hardware = _FakeHardware((_projector("p1", 0),))
         hardware.session = _FakeSession(OutputState.FREEZE, live_display_id="p1")
         vm = _make_vm(hardware)
@@ -457,22 +587,27 @@ class TestFreeze:
 
         await vm.unfreeze()
 
+        assert hardware.unfreeze_calls == 1
+        assert hardware.blackout_calls == 1
         assert window.blackouts == 1
+        assert vm.output_state is OutputState.BLACKOUT
 
     async def test_unfreeze_blackout_restore_stays_black(self, qapp: Any) -> None:
+        """Unfreezing to BLACKOUT must not re-show the last pattern."""
         hardware = _FakeHardware((_projector("p1", 0),))
         hardware.session = _FakeSession(OutputState.FREEZE, live_display_id="p1")
         hardware.unfreeze_restores = OutputState.BLACKOUT
         vm = _make_vm(hardware)
         window = _FakeWindow()
         vm.attach_output_window(window)
-        vm._last_pattern = PatternKind.COLOUR_BARS
+        await vm.test_pattern("p1", PatternKind.COLOUR_BARS)
 
         await vm.unfreeze()
 
         assert hardware.unfreeze_calls == 1
-        assert window.patterns == []
+        assert window.patterns == [PatternKind.COLOUR_BARS]
         assert window.blackouts == 1
+        assert vm.last_pattern is PatternKind.COLOUR_BARS
 
     async def test_unfreeze_after_new_session_does_not_restore_stale_pattern(
         self, qapp: Any
@@ -494,6 +629,7 @@ class TestFreeze:
         assert window.patterns == [PatternKind.COLOUR_BARS]
         assert window.blackouts == 1
         assert vm._last_pattern is None
+        assert vm.output_state is OutputState.BLACKOUT
 
     async def test_toggle_freeze_cycles(self, qapp: Any) -> None:
         hardware = _FakeHardware((_projector("p1", 0),))
@@ -507,7 +643,10 @@ class TestFreeze:
 
         await vm.toggle_freeze()
         resumed = vm.output_state
-        assert resumed is OutputState.LIVE
+        # No test pattern was set before freezing: unfreeze cannot
+        # restore content, so the session falls back to BLACKOUT
+        # instead of reporting LIVE with a black window.
+        assert resumed is OutputState.BLACKOUT
         assert hardware.freeze_calls == 1
         assert hardware.unfreeze_calls == 1
 
@@ -518,6 +657,42 @@ class TestFreeze:
 
         with pytest.raises(OutputSessionError, match="No active output session"):
             await vm.freeze()
+
+    async def test_freeze_without_output_window_raises(self, qapp: Any) -> None:
+        hardware = _FakeHardware((_projector("p1", 0),))
+        hardware.session = _FakeSession(OutputState.LIVE, live_display_id="p1")
+        vm = _make_vm(hardware)
+
+        with pytest.raises(OutputSessionError, match="Output window unavailable"):
+            await vm.freeze()
+
+        # The gate must run before any hardware mutation.
+        assert hardware.freeze_calls == 0
+
+    async def test_unfreeze_without_output_window_raises(self, qapp: Any) -> None:
+        hardware = _FakeHardware((_projector("p1", 0),))
+        hardware.session = _FakeSession(OutputState.FREEZE, live_display_id="p1")
+        vm = _make_vm(hardware)
+
+        with pytest.raises(OutputSessionError, match="Output window unavailable"):
+            await vm.unfreeze()
+
+        # The gate must run before any hardware mutation.
+        assert hardware.unfreeze_calls == 0
+
+    async def test_detached_window_blocks_surface_actions(self, qapp: Any) -> None:
+        hardware = _FakeHardware((_projector("p1", 0),))
+        hardware.session = _FakeSession(OutputState.LIVE, live_display_id="p1")
+        vm = _make_vm(hardware)
+        vm.attach_output_window(_FakeWindow())
+
+        vm.attach_output_window(None)
+
+        with pytest.raises(OutputSessionError, match="Output window unavailable"):
+            await vm.freeze()
+
+        # No output action may run against a detached (closed) window.
+        assert hardware.freeze_calls == 0
 
 
 class TestRefreshAndPreview:
@@ -591,15 +766,63 @@ class TestEvents:
 
         assert vm.revision > before
 
-    def test_unknown_display_event_ignored(self, qapp: Any) -> None:
+    def test_disconnect_without_session_bumps_revision_only(self, qapp: Any) -> None:
         hardware = _FakeHardware((_projector("p1", 0),))
         vm = _make_vm(hardware)
         before = vm.revision
 
         asyncio.run(
-            vm._on_display_disconnected(
-                DisplayConnected(display_id="p1", info=hardware.displays[0])
-            )
+            vm._on_display_disconnected(DisplayDisconnected(display_id="p1", name="P1"))
         )
 
-        assert vm.revision == before
+        assert vm.message is None
+        assert vm.revision > before
+
+
+class TestShutdown:
+    _EVENT_TYPES = (
+        DisplayDisconnected,
+        DisplayConnected,
+        DisplayLiveOutputChanged,
+        DisplayPreviewOutputChanged,
+        OutputSessionEnded,
+        OutputLiveStarted,
+        OutputBlackout,
+        OutputFrozen,
+        OutputUnfrozen,
+    )
+
+    def test_shutdown_unsubscribes_all_bus_handlers(self, qapp: Any) -> None:
+        hardware = _FakeHardware((_projector("p1", 0),))
+        vm = _make_vm(hardware)
+        bus = hardware.event_bus
+
+        assert set(bus._handlers) == set(self._EVENT_TYPES)
+        assert all(len(handlers) == 1 for handlers in bus._handlers.values())
+
+        vm.shutdown()
+
+        # All nine handler slots are empty (keys persist, as on the real bus).
+        assert set(bus._handlers) == set(self._EVENT_TYPES)
+        assert all(len(handlers) == 0 for handlers in bus._handlers.values())
+
+    def test_shutdown_keeps_other_bus_subscribers(self, qapp: Any) -> None:
+        hardware = _FakeHardware((_projector("p1", 0),))
+        vm = _make_vm(hardware)
+        bus = hardware.event_bus
+
+        def other(_event: Any) -> None:
+            pass
+
+        bus.subscribe(DisplayDisconnected, other)
+
+        vm.shutdown()
+
+        assert bus._handlers[DisplayDisconnected] == [other]
+
+    def test_shutdown_is_idempotent(self, qapp: Any) -> None:
+        hardware = _FakeHardware((_projector("p1", 0),))
+        vm = _make_vm(hardware)
+
+        vm.shutdown()
+        vm.shutdown()  # must not raise

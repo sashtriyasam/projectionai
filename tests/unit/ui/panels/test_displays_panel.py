@@ -11,13 +11,23 @@ from __future__ import annotations
 import os
 from typing import Any
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 import pytest
 from PySide6.QtWidgets import QApplication, QToolButton
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-from projectionai.hardware.errors import OutputSessionError
-from projectionai.hardware.models import DisplayInfo, DisplayKind
+from projectionai.core.errors import ProjectionAIError
+from projectionai.hardware.display_validator import (
+    ValidationIssue,
+    ValidationReport,
+    ValidationSeverity,
+)
+from projectionai.hardware.errors import OutputSwitchError
+from projectionai.hardware.models import (
+    DisplayConnection,
+    DisplayInfo,
+    DisplayKind,
+)
 from projectionai.hardware.output_manager import OutputState
 from projectionai.hardware.patterns import PatternKind
 from projectionai.ui.panels.displays_panel import DisplaysPanel
@@ -40,13 +50,17 @@ class _FakeViewModel:
         displays: tuple[DisplayInfo, ...],
         *,
         fail_live: bool = False,
+        fail_refresh: bool = False,
     ) -> None:
         self._displays = displays
         self.message: str | None = None
         self.output_state = OutputState.IDLE
+        self.session: Any = None
         self.preview_display_id: str | None = None
         self.calls: list[tuple[str, Any]] = []
         self._fail_live = fail_live
+        self._fail_refresh = fail_refresh
+        self._handlers: list[Any] = []
 
     def displays(self) -> tuple[DisplayInfo, ...]:
         return self._displays
@@ -66,18 +80,31 @@ class _FakeViewModel:
         )()
 
     def subscribe(self, handler: Any) -> None:
-        """No-op: tests drive refresh directly."""
+        self._handlers.append(handler)
 
     def set_message(self, text: str | None) -> None:
         self.message = text
+        for handler in self._handlers:
+            handler()
 
     def clear_message(self) -> None:
-        self.message = None
+        self.set_message(None)
 
     async def select_live(self, display_id: str) -> Any:
         self.calls.append(("select_live", display_id))
         if self._fail_live:
-            raise OutputSessionError("Switch rejected by validation")
+            raise OutputSwitchError(
+                "Switch rejected by validation",
+                ValidationReport(
+                    issues=(
+                        ValidationIssue(
+                            severity=ValidationSeverity.ERROR,
+                            code="no_renderer",
+                            message="Renderer not ready",
+                        ),
+                    )
+                ),
+            )
 
     async def select_preview(self, display_id: str) -> None:
         self.calls.append(("select_preview", display_id))
@@ -99,6 +126,8 @@ class _FakeViewModel:
 
     async def refresh_displays(self) -> int:
         self.calls.append(("refresh_displays", None))
+        if self._fail_refresh:
+            raise ProjectionAIError("Scan failed")
         return len(self._displays)
 
     async def identify(self, display_id: str) -> None:
@@ -115,6 +144,54 @@ def _displays(*ids: str) -> tuple[DisplayInfo, ...]:
         )
         for i, display_id in enumerate(ids)
     )
+
+
+def _display_info(*, manufacturer: str = "", model: str = "") -> DisplayInfo:
+    return DisplayInfo(
+        display_id="p1",
+        index=0,
+        name="Screen",
+        kind=DisplayKind.PROJECTOR,
+        manufacturer=manufacturer,
+        model=model,
+    )
+
+
+class TestDisplayLabel:
+    def test_device_joins_manufacturer_and_model(self) -> None:
+        label = DisplaysPanel._display_label(
+            _display_info(manufacturer="Epson", model="EB-2250U"), None, None
+        )
+
+        assert label.startswith("Screen · Epson/EB-2250U · ")
+
+    def test_device_uses_model_when_manufacturer_unset(self) -> None:
+        label = DisplaysPanel._display_label(
+            _display_info(model="EB-2250U"), None, None
+        )
+
+        assert label.startswith("Screen · EB-2250U · ")
+        assert "Epson" not in label
+
+    def test_device_omitted_when_both_unset(self) -> None:
+        label = DisplaysPanel._display_label(_display_info(), None, None)
+
+        assert label.startswith("Screen · ")
+        assert not label.startswith("Screen · /")
+
+    def test_projector_item_uses_connection_label(self, qapp: QApplication) -> None:
+        display = DisplayInfo(
+            display_id="p1",
+            index=0,
+            name="P1",
+            kind=DisplayKind.PROJECTOR,
+            connection=DisplayConnection.HDMI,
+        )
+
+        item = DisplaysPanel._projector_item(display, None, None)
+
+        assert "HDMI" in item.text()
+        assert "hdmi" not in item.text()
 
 
 def _button(panel: DisplaysPanel, text: str) -> QToolButton:
@@ -192,6 +269,25 @@ class TestActionButtons:
 
         assert vm.calls == [("toggle_freeze", None)]
 
+    def test_freeze_click_does_not_stick_checked_state(
+        self, qapp: QApplication
+    ) -> None:
+        """The checked state follows the VM, not the click.
+
+        The button is checkable, so Qt toggles it on click; the panel
+        must revert it to the view-model state immediately (the toggle
+        is async and the fake never reaches FREEZE).
+        """
+        vm = _FakeViewModel(_displays("p1"))
+        panel = DisplaysPanel()
+        panel.bind_viewmodel(vm)
+        assert not panel.freeze_button.isChecked()
+
+        _button(panel, "Freeze").click()
+
+        assert vm.calls == [("toggle_freeze", None)]
+        assert not panel.freeze_button.isChecked()
+
     def test_exit_output_button(self, qapp: QApplication) -> None:
         vm = _FakeViewModel(_displays("p1"))
         panel = DisplaysPanel()
@@ -232,6 +328,47 @@ class TestActionFeedback:
 
         assert vm.message is not None
         assert "Switch rejected" in vm.message
+
+    def test_switch_rejection_renders_validation_report(
+        self, qapp: QApplication
+    ) -> None:
+        vm = _FakeViewModel(_displays("p1"), fail_live=True)
+        panel = DisplaysPanel()
+        panel.bind_viewmodel(vm)
+        panel.display_list.setCurrentRow(0)
+
+        _button(panel, "Select as Live").click()
+
+        assert vm.message is not None
+        assert "Switch rejected" in vm.message
+        # The rejection report survives the refresh triggered by the
+        # view-model notification (no stale vm.validate() overwrite).
+        assert "Renderer not ready" in panel.validation_label.text()
+
+    def test_rejected_switch_report_clears_after_successful_action(
+        self, qapp: QApplication
+    ) -> None:
+        vm = _FakeViewModel(_displays("p1"), fail_live=True)
+        panel = DisplaysPanel()
+        panel.bind_viewmodel(vm)
+        panel.display_list.setCurrentRow(0)
+
+        _button(panel, "Select as Live").click()
+        assert "Renderer not ready" in panel.validation_label.text()
+
+        _button(panel, "Blackout").click()
+
+        assert "Renderer not ready" not in panel.validation_label.text()
+
+    def test_refresh_failure_surfaces_as_message(self, qapp: QApplication) -> None:
+        vm = _FakeViewModel(_displays("p1"), fail_refresh=True)
+        panel = DisplaysPanel()
+        panel.bind_viewmodel(vm)
+
+        _button(panel, "Refresh").click()
+
+        assert vm.message is not None
+        assert "Scan failed" in vm.message
 
     def test_successful_action_clears_message(self, qapp: QApplication) -> None:
         vm = _FakeViewModel(_displays("p1"))

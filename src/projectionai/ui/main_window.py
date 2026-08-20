@@ -574,6 +574,8 @@ class MainWindow(QMainWindow):
         self._app.event_bus.unsubscribe(
             WorkspaceLayoutChanged, self._on_workspace_changed
         )
+        if self._displays_vm is not None:
+            self._displays_vm.shutdown()
         ws = self._app.workspace
         if ws is not None:
             ws.update_window_geometry(
@@ -591,7 +593,12 @@ class MainWindow(QMainWindow):
             self._actions.shutdown()
         if self._output_vm is not None:
             self._output_vm.close()
+        if self._displays_vm is not None:
+            self._displays_vm.attach_output_window(None)
         if self._output_window is not None:
+            self._output_window.output_escape_requested.disconnect(
+                self._on_output_escape
+            )
             self._output_window.close()
         _logger.debug("Main window closing")
         super().closeEvent(event)

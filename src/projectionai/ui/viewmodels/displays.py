@@ -18,6 +18,7 @@ session) before touching hardware.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Protocol
 
 from projectionai.core.events import Event
@@ -77,6 +78,19 @@ class DisplaysViewModel(Observable):
         bus.subscribe(OutputBlackout, self._on_output_event)
         bus.subscribe(OutputFrozen, self._on_output_event)
         bus.subscribe(OutputUnfrozen, self._on_output_event)
+
+    def shutdown(self) -> None:
+        """Detach from the hardware event bus (called on window close)."""
+        bus = self._hardware.event_bus
+        bus.unsubscribe(DisplayDisconnected, self._on_display_disconnected)
+        bus.unsubscribe(DisplayConnected, self._on_output_event)
+        bus.unsubscribe(DisplayLiveOutputChanged, self._on_output_event)
+        bus.unsubscribe(DisplayPreviewOutputChanged, self._on_output_event)
+        bus.unsubscribe(OutputSessionEnded, self._on_output_event)
+        bus.unsubscribe(OutputLiveStarted, self._on_output_event)
+        bus.unsubscribe(OutputBlackout, self._on_output_event)
+        bus.unsubscribe(OutputFrozen, self._on_output_event)
+        bus.unsubscribe(OutputUnfrozen, self._on_output_event)
 
     # -- Topology ---------------------------------------------------------------
 
@@ -237,18 +251,39 @@ class DisplaysViewModel(Observable):
         """Route live output to *display_id* and fullscreen the output window.
 
         Starts a session when none exists. Safety gates run before the
-        switch: the display must be connected and the output window must
-        be attached. A rejected switch raises
-        :class:`OutputSwitchError` with the validation report.
+        switch: the display must be connected and fullscreen-capable and
+        the output window must be attached. A rejected switch raises
+        :class:`OutputSwitchError` with the validation report — and any
+        failed or cancelled switch rolls back the session this call
+        started, so a failed first switch never leaves a stale session
+        behind.
         """
-        self._hardware.get_display(display_id)  # raises when unknown
+        self._require_fullscreen(display_id)
         window = self._require_window()
-        if self._hardware.output_session is None:
+        created = self._hardware.output_session is None
+        if created:
             await self._start_session()
-        report = await self._hardware.switch_live_output(display_id, window)
+        try:
+            report = await self._hardware.switch_live_output(display_id, window)
+        except asyncio.CancelledError:
+            await self._rollback_created_session(created)
+            raise
+        except Exception:
+            await self._rollback_created_session(created)
+            raise
         self._last_report = report
         self._notify()
         return report
+
+    async def _rollback_created_session(self, created: bool) -> None:
+        if not created:
+            return
+        try:
+            await self._hardware.end_output_session()
+        except asyncio.CancelledError:
+            pass  # The caller is being cancelled; rollback is best-effort.
+        except Exception:
+            pass  # The original failure re-raises after rollback.
 
     async def enter_fullscreen(self, display_id: str) -> None:
         """Fullscreen the output window on *display_id*.
@@ -296,21 +331,26 @@ class DisplaysViewModel(Observable):
 
     async def freeze(self) -> None:
         """Freeze the live output (holds the last rendered frame)."""
+        window = self._require_window()
         await self._hardware.freeze_output()
-        if self._window is not None:
-            self._window.set_freeze()
+        window.set_freeze()
         self._notify()
 
     async def unfreeze(self) -> None:
         """Resume the frozen output (restores the pre-freeze state)."""
+        window = self._require_window()
         await self._hardware.unfreeze_output()
-        if self._window is not None:
-            if self.output_state is OutputState.BLACKOUT:
-                self._window.set_blackout()
-            elif self._last_pattern is not None:
-                self._window.set_pattern(self._last_pattern)
-            else:
-                self._window.set_blackout()
+        if self.output_state is OutputState.BLACKOUT:
+            window.set_blackout()
+        elif self._last_pattern is None:
+            # No content to restore: a live session without a test
+            # pattern would keep a black window while reporting LIVE.
+            # Cut output instead so the session state always matches
+            # the physical output.
+            await self._hardware.emergency_blackout()
+            window.set_blackout()
+        else:
+            window.set_pattern(self._last_pattern)
         self._notify()
 
     async def toggle_freeze(self) -> None:
@@ -362,7 +402,9 @@ class DisplaysViewModel(Observable):
         session = self._hardware.output_session
         if (
             session is not None
-            and session.state is OutputState.LIVE
+            # A frozen session still owns the live route (freeze holds
+            # it for instant resume), so it conflicts the same way.
+            and session.state in (OutputState.LIVE, OutputState.FREEZE)
             and session.live_display_id != display_id
         ):
             raise OutputSessionError(

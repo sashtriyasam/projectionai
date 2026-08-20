@@ -79,6 +79,7 @@ class DisplaysPanel(ViewModelPanel):
     def __init__(self, parent: Any = None) -> None:
         super().__init__(parent)
         self.setObjectName("displaysPanel")
+        self._failed_report: ValidationReport | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -205,6 +206,7 @@ class DisplaysPanel(ViewModelPanel):
         self.session_label.setStyleSheet(f"color: {STATE_COLORS['idle']};")
         self.preview_combo.clear()
         self.freeze_button.setChecked(False)
+        self._failed_report = None
 
     def _refresh_displays(self) -> None:
         vm = self._viewmodel
@@ -232,7 +234,11 @@ class DisplaysPanel(ViewModelPanel):
         vm = self._viewmodel
         if vm is None:
             return
-        report = vm.validate()
+        # A rejected switch keeps its report visible across refreshes
+        # (vm.validate() would show the stale pre-switch report).
+        report = (
+            self._failed_report if self._failed_report is not None else vm.validate()
+        )
         self._render_report(report)
         self.message_label.setText(vm.message or "")
 
@@ -263,7 +269,9 @@ class DisplaysPanel(ViewModelPanel):
         display: DisplayInfo, live_id: str | None, preview_id: str | None
     ) -> str:
         parts = [display.name]
-        device = display.manufacturer or display.model
+        device = "/".join(
+            part for part in (display.manufacturer, display.model) if part
+        )
         if device:
             parts.append(device)
         parts.append(display.mode_label)
@@ -298,7 +306,7 @@ class DisplaysPanel(ViewModelPanel):
             state = "PREVIEW"
             colour = WARN_YELLOW
         else:
-            state = display.connection.value
+            state = _CONNECTION_LABELS.get(display.connection, "unknown")
             colour = TEXT_DIM
         item = QListWidgetItem(f"{display.name}  ·  {display.mode_label}  ·  {state}")
         item.setData(_USER_ROLE, display.display_id)
@@ -399,6 +407,9 @@ class DisplaysPanel(ViewModelPanel):
         if vm is None:
             return
         run_async(self._safe(vm.toggle_freeze()))
+        # Qt toggles the checkable button on click; revert it to the
+        # view-model state until the async toggle refreshes the panel.
+        self.freeze_button.setChecked(vm.output_state is OutputState.FREEZE)
 
     def _exit_output(self) -> None:
         vm = self._viewmodel
@@ -410,7 +421,7 @@ class DisplaysPanel(ViewModelPanel):
         vm = self._viewmodel
         if vm is None:
             return
-        run_async(vm.refresh_displays())
+        run_async(self._safe(vm.refresh_displays()))
 
     def _identify(self) -> None:
         vm = self._viewmodel
@@ -424,13 +435,14 @@ class DisplaysPanel(ViewModelPanel):
         vm = self._viewmodel
         try:
             await coro
-            if vm is not None and hasattr(vm, "clear_message"):
+            self._failed_report = None
+            if vm is not None:
                 vm.clear_message()
         except OutputSwitchError as exc:
             if exc.report is not None:
-                self._render_report(exc.report)
-            if vm is not None and hasattr(vm, "set_message"):
+                self._failed_report = exc.report
+            if vm is not None:
                 vm.set_message(f"✗ {exc}")
         except ProjectionAIError as exc:
-            if vm is not None and hasattr(vm, "set_message"):
+            if vm is not None:
                 vm.set_message(f"✗ {exc}")

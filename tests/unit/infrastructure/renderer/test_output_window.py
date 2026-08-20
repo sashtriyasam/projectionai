@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from typing import cast
+from typing import Any, cast
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import numpy as np
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QSignalSpy, QTest
@@ -120,6 +121,131 @@ def test_show_never_crashes_without_gl(
     window.show()
     qapp.processEvents()
     assert window.content == OutputContent.black()
+
+
+def test_paint_clears_black_when_gl_not_ready(
+    window: GLOutputWindow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The framebuffer must be explicitly blacked before GL is ready."""
+    window._gl_ready = False
+    cleared: list[bool] = []
+    monkeypatch.setattr(window, "_clear_black", lambda: cleared.append(True))
+    window.paintGL()
+    assert cleared == [True]
+
+
+def test_initialize_uses_widget_context_factory(
+    window: GLOutputWindow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GL setup must attach to the widget's context, never a standalone one."""
+    from projectionai.infrastructure.renderer.context import RenderContext
+    from projectionai.infrastructure.renderer.passes.pattern import PatternPass
+    from projectionai.infrastructure.renderer.render_target import ScreenTarget
+
+    attached: list[object] = []
+    created: list[_FakeContext] = []
+    target_calls: list[tuple[Any, Any, int]] = []
+    setup_calls: list[tuple[Any, Any]] = []
+
+    def fake_from_widget(widget: object) -> _FakeContext:
+        attached.append(widget)
+        fake = _FakeContext()
+        created.append(fake)
+        return fake
+
+    def fake_screen_target(
+        _self: Any, ctx: Any, _width: int, _height: int, fbo_id: int = 0
+    ) -> None:
+        target_calls.append((_self, ctx, fbo_id))
+
+    def fake_setup(_self: Any, ctx: Any, _width: int, _height: int) -> None:
+        setup_calls.append((_self, ctx))
+
+    monkeypatch.setattr(RenderContext, "from_widget", fake_from_widget)
+    monkeypatch.setattr(ScreenTarget, "__init__", fake_screen_target)
+    monkeypatch.setattr(PatternPass, "setup", fake_setup)
+
+    window.initializeGL()
+
+    # The widget context (and its framebuffer) drives every GL consumer.
+    assert attached == [window]
+    assert created[0].ctx is window._ctx
+    assert target_calls == [
+        (window._target, window._ctx, window.defaultFramebufferObject())
+    ]
+    assert setup_calls == [(window._pass, window._ctx)]
+    assert window._pass is not None
+    assert window._pass.target is window._target
+    assert window._gl_ready
+
+
+def test_clear_black_without_context_is_noop(window: GLOutputWindow) -> None:
+    """The clear helper must never crash offscreen (no GL context)."""
+    window._clear_black()
+
+
+def test_focus_policy_allows_keyboard(window: GLOutputWindow) -> None:
+    """Strong focus lets key events (ESC) reach the window."""
+    assert window.focusPolicy() == Qt.FocusPolicy.StrongFocus
+
+
+def test_show_full_screen_activates_and_focuses(
+    window: GLOutputWindow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fullscreen must activate and focus the window so ESC is received."""
+    activated: list[bool] = []
+    focused: list[Qt.FocusReason] = []
+    monkeypatch.setattr(window, "activateWindow", lambda: activated.append(True))
+    monkeypatch.setattr(window, "setFocus", lambda reason: focused.append(reason))
+
+    window.showFullScreen()
+
+    assert activated == [True]
+    assert focused == [Qt.FocusReason.ActiveWindowFocusReason]
+
+
+def test_pattern_texture_rows_are_flipped(
+    window: GLOutputWindow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Asymmetric patterns must reach the GPU upright, not inverted.
+
+    Image row 0 is the top of the pattern but texture v=0 maps to the
+    bottom of the quad; the upload path flips rows so the projector
+    shows the pattern the way it was generated.
+    """
+    source = np.zeros((4, 2, 4), dtype=np.uint8)
+    source[0, :, :] = (255, 0, 0, 255)  # image top: red
+    source[-1, :, :] = (0, 0, 255, 255)  # image bottom: blue
+    uploaded: list[Any] = []
+
+    def fake_from_array(
+        ctx: object, array: object, components: int, filter: str
+    ) -> Texture:
+        uploaded.append(array)
+        return cast(Texture, _FakeTexture())
+
+    monkeypatch.setattr(
+        "projectionai.hardware.patterns.pattern_to_rgba", lambda *_: source
+    )
+    monkeypatch.setattr(Texture, "from_array", fake_from_array)
+    window._pass = cast(PatternPass, _FakePass())
+    window._ctx = object()
+    window.set_pattern(PatternKind.COLOUR_BARS)
+
+    window._ensure_texture()
+
+    assert len(uploaded) == 1
+    array = uploaded[0]
+    assert array.shape == (4, 2, 4)
+    assert tuple(array[0, 0]) == (0, 0, 255, 255)  # image bottom -> v=0 (quad bottom)
+    assert tuple(array[-1, 0]) == (255, 0, 0, 255)  # image top -> v=1 (quad top)
+
+
+class _FakeContext:
+    """Minimal stand-in exposing ``.ctx`` for the window's GL setup."""
+
+    def __init__(self) -> None:
+        self.ctx: Any = object()
 
 
 class _FakePass:
