@@ -59,13 +59,13 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1 libglx-mesa0 libxkbcommon-x11-0
+          sudo apt-get install -y libegl1 libgl1 libglx-mesa0 libxkbcommon-x11-0 xvfb
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Run tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: uv run pytest --no-header -q --cov=src/projectionai --cov-report=xml --cov-report=term-missing --cov-fail-under=60
+        run: xvfb-run -a uv run pytest --no-header -q --cov=src/projectionai --cov-report=xml --cov-report=term-missing --cov-fail-under=60
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:

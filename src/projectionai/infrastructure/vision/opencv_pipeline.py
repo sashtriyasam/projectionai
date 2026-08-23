@@ -8,7 +8,7 @@ from typing import override
 import cv2
 
 from projectionai.domain.geometry import Mesh, Pose
-from projectionai.domain.surface import ProjectionSurface
+from projectionai.domain.surface import DetectedSurface
 from projectionai.services.vision import (
     CalibrationData,
     CameraFrame,
@@ -43,7 +43,7 @@ class OpenCVPipeline(VisionPipeline):
     async def detect_surfaces(
         self,
         frame: CameraFrame,
-    ) -> tuple[ProjectionSurface, ...]:
+    ) -> tuple[DetectedSurface, ...]:
         return ()
 
     @override

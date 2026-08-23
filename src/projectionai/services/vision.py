@@ -14,7 +14,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from projectionai.domain.geometry import Mesh, PointCloud, Pose
-from projectionai.domain.surface import ProjectionSurface
+from projectionai.domain.surface import DetectedSurface
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -36,7 +36,7 @@ class ScanResult:
 
     point_cloud: PointCloud | None = None
     mesh: Mesh | None = None
-    surfaces: tuple[ProjectionSurface, ...] = ()
+    surfaces: tuple[DetectedSurface, ...] = ()
     pose: Pose | None = None
     confidence: float = 0.0
     metadata: dict[str, object] = field(default_factory=dict)
@@ -107,9 +107,7 @@ class VisionPipeline(ABC):
         """
 
     @abstractmethod
-    async def detect_surfaces(
-        self, frame: CameraFrame
-    ) -> tuple[ProjectionSurface, ...]:
+    async def detect_surfaces(self, frame: CameraFrame) -> tuple[DetectedSurface, ...]:
         """Detect planar surfaces suitable for projection."""
 
     @abstractmethod
