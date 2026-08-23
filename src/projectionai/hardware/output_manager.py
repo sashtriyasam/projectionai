@@ -29,6 +29,7 @@ from projectionai.hardware.display_validator import (
     ValidationReport,
 )
 from projectionai.hardware.errors import (
+    DisplayNotFoundError,
     OutputSessionError,
     OutputSwitchError,
 )
@@ -368,7 +369,11 @@ class OutputManager(Manager):
         prior session state and history untouched.
         """
         original = self._session
-        display = self._display_manager.get(display_id)  # raises if unknown
+        try:
+            display = self._display_manager.get(display_id)
+        except DisplayNotFoundError:
+            self._session = original
+            raise
         if not display.capabilities.supports_fullscreen:
             # The facade must not bypass the fullscreen capability gate:
             # a live switch moves the output window fullscreen on the

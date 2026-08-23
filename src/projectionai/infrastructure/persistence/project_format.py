@@ -28,6 +28,7 @@ from projectionai.domain.project import (
     ProjectMetadata,
     ProjectSettings,
 )
+from projectionai.domain.projection import ProjectionMapping
 from projectionai.domain.scene import Scene
 
 _logger = logging.getLogger(__name__)
@@ -61,6 +62,24 @@ def write_project(project: Project, path: Path) -> None:
         path: Existing ``.projectai`` directory.
     """
     _write_manifest(project, path)
+
+    # Write projections
+    projections_dir = path / "projections"
+    projections_dir.mkdir(exist_ok=True)
+    known_proj_ids = set(project.projections.keys())
+    for proj in project.projections.values():
+        proj_path = projections_dir / f"{proj.id}.json"
+        proj_path.write_text(
+            json.dumps(proj.to_dict(), indent=2, default=str),
+            encoding="utf-8",
+        )
+
+    for f in projections_dir.iterdir():
+        if f.suffix == ".json" and f.stem not in known_proj_ids:
+            try:
+                f.unlink()
+            except Exception as exc:
+                _logger.warning("Failed to remove stale projection file %s: %s", f, exc)
 
     # Write scenes
     scenes_dir = path / SCENES_DIR
@@ -158,6 +177,18 @@ def read_project(path: Path) -> Project:
         except Exception as exc:
             _logger.warning("Skipping invalid history entry: %s", exc)
 
+    projections_dir = path / "projections"
+    if projections_dir.is_dir():
+        for f in sorted(projections_dir.iterdir()):
+            if f.suffix != ".json":
+                continue
+            try:
+                proj_data = json.loads(f.read_text(encoding="utf-8"))
+                projection = ProjectionMapping.from_dict(proj_data)
+                project.add_projection(projection)
+            except Exception as exc:
+                _logger.warning("Failed to read projection %s: %s", f, exc)
+
     # Read scenes
     scenes_dir = path / SCENES_DIR
     if scenes_dir.is_dir():
@@ -208,11 +239,19 @@ def _write_manifest(project: Project, path: Path) -> None:
         except Exception as exc:
             _logger.warning("Failed to serialize scene %s: %s", scene.id, exc)
 
+    projections_data: list[dict[str, str]] = []
+    for proj in project.projections.values():
+        try:
+            projections_data.append({"id": proj.id, "name": proj.name})
+        except Exception as exc:
+            _logger.warning("Failed to serialize projection %s: %s", proj.id, exc)
+
     data: dict[str, Any] = {
         "id": project.id,
         "name": project.name,
         "active_scene_id": project.active_scene_id,
         "scenes": scenes_data,
+        "projections": projections_data,
         "settings": {
             "resolution_width": project.settings.resolution_width,
             "resolution_height": project.settings.resolution_height,

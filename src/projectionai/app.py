@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QApplication, QSplashScreen, QWidget
 
+    from projectionai.services.warp_engine_cpu import ProjectionWarpEngine
+
 import anyio
 from platformdirs import user_data_dir
 
@@ -39,6 +41,7 @@ from projectionai.managers.project_manager import ProjectManager
 from projectionai.managers.scene_manager import SceneManager
 from projectionai.managers.settings_manager import SettingsManager
 from projectionai.managers.workspace_manager import WorkspaceManager
+from projectionai.services import EngineMode, WarpEngineFactory
 
 _logger = logging.getLogger(__name__)
 
@@ -80,6 +83,7 @@ class Application:
         self._renderer: _Shutdownable | None = None
         self._storage: _Shutdownable | None = None
         self._calibrator: _Shutdownable | None = None
+        self._warp_engine: ProjectionWarpEngine | None = None
 
     # -- Core properties ----------------------------------------------------
 
@@ -167,6 +171,19 @@ class Application:
     def hardware(self) -> HardwareManager:
         """Shortcut to the hardware manager."""
         return self._registry.get_typed("hardware", HardwareManager)
+
+    @property
+    def warp_engine(self) -> ProjectionWarpEngine:
+        """Return the warp engine.
+
+        Raises RuntimeError if the engine failed to initialize.
+        """
+        if self._warp_engine is None:
+            raise RuntimeError(
+                "Warp engine not initialized. "
+                "Call initialize() first or check logs for initialization errors."
+            )
+        return self._warp_engine
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -274,6 +291,7 @@ class Application:
         await self._init_vision_pipeline()
         await self._init_renderer()
         await self._init_calibrator()
+        await self._init_warp_engine()
 
         _logger.info("Application initialized successfully")
 
@@ -370,9 +388,48 @@ class Application:
                 exc,
             )
 
+    async def _init_warp_engine(self) -> None:
+        """Initialize the warp engine using the configured engine mode.
+
+        The warp engine is used for calibration, precomputation, reference
+        CPU paths, and offline workflows. It is NOT used for realtime
+        GPU rendering (ProjectionPass handles that via vertex shader).
+        """
+        try:
+            mode = self._config.warp_engine_mode
+            engine = WarpEngineFactory.create(mode)
+            self._warp_engine = engine
+            _logger.info(
+                "Warp engine initialized: %s (%s)",
+                type(engine).__name__,
+                mode.value,
+            )
+        except Exception as exc:
+            _logger.warning(
+                "Warp engine (%s) unavailable — CPU fallback: %s",
+                self._config.warp_engine_mode,
+                exc,
+            )
+            # Fallback to CPU if anything fails
+            try:
+                self._warp_engine = WarpEngineFactory.create(EngineMode.CPU)
+                _logger.info("Warp engine fallback to CpuWarpEngine")
+            except Exception as fallback_exc:
+                _logger.error(
+                    "Warp engine fallback failed — no warp engine available: %s",
+                    fallback_exc,
+                )
+
     async def shutdown(self) -> None:
         """Shutdown all subsystems in reverse order."""
         _logger.info("Shutting down ProjectionAI")
+
+        # Shutdown warp engine if it has shutdown
+        if self._warp_engine is not None and hasattr(self._warp_engine, "shutdown"):
+            try:
+                await self._warp_engine.shutdown()
+            except Exception:
+                _logger.exception("Error shutting down warp engine")
 
         # Shutdown infrastructure services
         for service in [

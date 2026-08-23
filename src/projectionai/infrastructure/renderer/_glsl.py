@@ -320,3 +320,58 @@ void main() {
     frag_color = texture(u_texture, v_uv);
 }
 """
+
+# =========================================================================
+# projection.vert — Vertex shader for warp mesh
+# =========================================================================
+EMBEDDED_SHADERS["projection.vert"] = """#version 330 core
+// Projection vertex shader — applies warp mesh to content texture
+layout(location = 0) in vec2 in_position;  // Projector UV (clip space position)
+layout(location = 1) in vec2 in_uv;        // Content UV (texture coordinate)
+
+out vec2 v_uv;
+
+void main() {
+    gl_Position = vec4(in_position, 0.0, 1.0);
+    v_uv = in_uv;
+}
+"""
+
+# =========================================================================
+# projection.frag — Fragment shader with blend/mask/crop
+# =========================================================================
+EMBEDDED_SHADERS["projection.frag"] = """#version 330 core
+// Projection fragment shader — samples warped content with blend/mask/crop
+uniform sampler2D u_texture;
+uniform vec4 u_crop;        // x, y, width, height (normalized 0-1)
+uniform float u_blend;      // blend opacity (0.0 = transparent, 1.0 = opaque)
+uniform int u_mask_enabled; // 0 = no mask, 1 = mask active
+uniform vec2 u_mask_center; // mask center (normalized 0-1)
+uniform float u_mask_radius; // mask radius (normalized 0-1)
+
+in vec2 v_uv;
+out vec4 fragColor;
+
+void main() {
+    // Crop: discard pixels outside crop region
+    if (v_uv.x < u_crop.x || v_uv.x > u_crop.x + u_crop.z ||
+        v_uv.y < u_crop.y || v_uv.y > u_crop.y + u_crop.w) {
+        discard;
+    }
+
+    // Sample content texture
+    vec4 color = texture(u_texture, v_uv);
+
+    // Mask: feather edges
+    if (u_mask_enabled == 1) {
+        float dist = distance(v_uv, u_mask_center);
+        float feather = 1.0 - smoothstep(u_mask_radius * 0.8, u_mask_radius, dist);
+        color.a *= feather;
+    }
+
+    // Blend: apply opacity
+    color.a *= u_blend;
+
+    fragColor = color;
+}
+"""

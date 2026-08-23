@@ -15,6 +15,7 @@ from enum import Enum
 from pathlib import Path
 from uuid import uuid4
 
+from projectionai.domain.projection import ProjectionMapping
 from projectionai.domain.scene import Scene
 
 # ---------------------------------------------------------------------------
@@ -178,6 +179,9 @@ class Project:
     scenes: dict[str, Scene] = field(default_factory=dict)
     active_scene_id: str | None = None
 
+    # Projections
+    projections: dict[str, ProjectionMapping] = field(default_factory=dict)
+
     # Settings
     settings: ProjectSettings = field(default_factory=ProjectSettings)
 
@@ -233,6 +237,28 @@ class Project:
     @property
     def scene_count(self) -> int:
         return len(self.scenes)
+
+    # ------------------------------------------------------------------
+    # Projection management
+    # ------------------------------------------------------------------
+
+    def add_projection(self, projection: ProjectionMapping) -> None:
+        """Add a projection mapping to the project."""
+        self.projections[projection.id] = projection
+        self.touch()
+
+    def remove_projection(self, projection_id: str) -> None:
+        """Remove a projection mapping from the project."""
+        _ = self.projections.pop(projection_id, None)
+        self.touch()
+
+    def get_projection(self, projection_id: str) -> ProjectionMapping | None:
+        """Get a projection mapping by ID."""
+        return self.projections.get(projection_id)
+
+    @property
+    def projection_count(self) -> int:
+        return len(self.projections)
 
     # ------------------------------------------------------------------
     # History

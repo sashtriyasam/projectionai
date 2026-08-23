@@ -16,6 +16,8 @@ from typing import ClassVar, Literal, cast
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from projectionai.services.warp_engine_factory import EngineMode
+
 # ---------------------------------------------------------------------------
 # AI Provider sub-configs
 # ---------------------------------------------------------------------------
@@ -116,6 +118,10 @@ class AppConfig(BaseSettings):
     camera_provider: str = Field(
         default="opencv",
         validation_alias="PROJECTIONAI_CAMERA_PROVIDER",
+    )
+    warp_engine_mode: EngineMode = Field(
+        default=EngineMode.AUTO,
+        validation_alias="PROJECTIONAI_WARP_ENGINE_MODE",
     )
 
     # -- AI -----------------------------------------------------------------

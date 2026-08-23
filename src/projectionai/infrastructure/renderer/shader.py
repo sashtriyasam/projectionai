@@ -144,6 +144,11 @@ class Shader:
         if name in self._uniforms:
             self._uniforms[name].value = value
 
+    def set_vec2(self, name: str, x: float, y: float) -> None:
+        """Set a vec2 uniform."""
+        if name in self._uniforms:
+            self._uniforms[name].value = (x, y)
+
     # -- Render ------------------------------------------------------------
 
     def use(self) -> None:

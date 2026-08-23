@@ -25,6 +25,7 @@ from projectionai.infrastructure.renderer.output_content import (
     OutputContentKind,
 )
 from projectionai.infrastructure.renderer.passes.pattern import PatternPass
+from projectionai.infrastructure.renderer.passes.projection import ProjectionPass
 from projectionai.infrastructure.renderer.render_target import ScreenTarget
 from projectionai.infrastructure.renderer.texture import Texture
 
@@ -70,6 +71,7 @@ class GLOutputWindow(QOpenGLWidget):
         self._gl_ready: bool = False
         self._ctx: Any = None
         self._pass: PatternPass | None = None
+        self._projection_pass: ProjectionPass | None = None
         self._target: ScreenTarget | None = None
         self._texture: Texture | None = None
         self._texture_key: tuple[Any, ...] | None = None
@@ -81,6 +83,16 @@ class GLOutputWindow(QOpenGLWidget):
     def gl_ready(self) -> bool:
         """Whether the GL context and renderer are fully initialized."""
         return self._gl_ready
+
+    @property
+    def gl_info(self) -> dict[str, str]:
+        """GL context info dict (vendor, renderer, version, GLSL version).
+
+        Returns an empty dict when the GL context is not yet ready.
+        """
+        if self._ctx is None:
+            return {}
+        return dict(self._ctx.info)
 
     # -- Content -----------------------------------------------------------
 
@@ -112,7 +124,7 @@ class GLOutputWindow(QOpenGLWidget):
 
     @override
     def initializeGL(self) -> None:
-        """Create the ModernGL context and the pattern pass.
+        """Create the ModernGL context and the pattern/projection passes.
 
         Any failure degrades to a black window rather than crashing the
         application.
@@ -134,6 +146,11 @@ class GLOutputWindow(QOpenGLWidget):
             self._pass = PatternPass()
             self._pass.target = self._target
             self._pass.setup(self._ctx, width, height)
+
+            self._projection_pass = ProjectionPass()
+            self._projection_pass.target = self._target
+            self._projection_pass.setup(self._ctx, width, height)
+
             self._gl_ready = True
         except Exception:
             _logger.exception("GL output window init failed; staying black")
@@ -143,18 +160,41 @@ class GLOutputWindow(QOpenGLWidget):
     def resizeGL(self, width: int, height: int) -> None:
         if self._target is not None:
             self._target.resize(width, height)
+        if self._pass is not None:
+            self._pass.resize(self._ctx, width, height)
+        if self._projection_pass is not None:
+            self._projection_pass.resize(self._ctx, width, height)
 
     @override
     def paintGL(self) -> None:
-        if not self._gl_ready or self._pass is None or self._ctx is None:
+        if not self._gl_ready or self._ctx is None:
             self._clear_black()  # never show stale/undefined content
             return
         # Qt may have recreated its FBO (resize / screen change) since the
         # last frame — always target the *current* widget FBO.
         if self._target is not None:
             self._target.set_fbo_id(self.defaultFramebufferObject())
-        self._ensure_texture()
-        self._pass.render(self._ctx, None, None)
+
+        content = self._content
+        if content.kind is OutputContentKind.PROJECTION:
+            # Projection: warp source texture through ProjectionPass
+            if (
+                self._projection_pass is not None
+                and content.source_texture is not None
+                and content.warp_mesh is not None
+            ):
+                self._projection_pass.set_source_texture(content.source_texture)
+                self._projection_pass.set_warp_mesh(content.warp_mesh)
+                self._projection_pass.render(self._ctx, None, None)
+            else:
+                self._clear_black()
+        else:
+            # Pattern/Black/Freeze: use PatternPass (existing behavior)
+            if self._pass is not None:
+                self._ensure_texture()
+                self._pass.render(self._ctx, None, None)
+            else:
+                self._clear_black()
 
     def _clear_black(self) -> None:
         """Fill the framebuffer with opaque black.

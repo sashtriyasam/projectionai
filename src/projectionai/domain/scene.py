@@ -75,6 +75,7 @@ class ComponentType(StrEnum):
     AUDIO = "audio"
     ANIMATION = "animation"
     METADATA = "metadata"
+    PROJECTOR = "projector"
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +154,40 @@ class LightComponent(Component):
     @override
     def component_type(self) -> ComponentType:
         return ComponentType.LIGHT
+
+
+@dataclass
+class ProjectorComponent(Component):
+    """Projector component for projection mapping.
+
+    References a projector pose from the calibration model and links
+    to a projection mapping configuration.
+    """
+
+    projector_id: str = ""  # References ProjectorModel pose ID
+    mapping_id: str = ""  # References ProjectionMapping ID
+
+    @property
+    @override
+    def component_type(self) -> ComponentType:
+        return ComponentType.PROJECTOR
+
+
+@dataclass
+class SurfaceComponent(Component):
+    """Surface component for projection mapping.
+
+    References a configured surface from the domain model and optionally
+    a mesh asset for the surface geometry.
+    """
+
+    surface_id: str = ""  # References ConfiguredSurface ID
+    mesh_asset_id: str = ""  # Optional Asset(Mesh) for surface geometry
+
+    @property
+    @override
+    def component_type(self) -> ComponentType:
+        return ComponentType.SURFACE
 
 
 # ---------------------------------------------------------------------------
@@ -539,6 +574,8 @@ def _component_from_dict(comp_type: str, data: dict[str, object]) -> Component:
         ComponentType.MATERIAL: MaterialComponent,
         ComponentType.CAMERA: CameraComponent,
         ComponentType.LIGHT: LightComponent,
+        ComponentType.PROJECTOR: ProjectorComponent,
+        ComponentType.SURFACE: SurfaceComponent,
     }
     cls = factory_map.get(ct)
     if cls is None:
