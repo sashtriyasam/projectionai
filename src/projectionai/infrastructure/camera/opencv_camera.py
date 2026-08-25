@@ -75,6 +75,19 @@ class OpenCVCamera(Camera):
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
         cap.set(cv2.CAP_PROP_FPS, self._fps)
+        try:
+            buf_ok = cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            _logger.debug(
+                "Camera %s CAP_PROP_BUFFERSIZE set result: %s",
+                self._info.camera_id,
+                buf_ok,
+            )
+        except Exception:
+            _logger.debug(
+                "Camera %s CAP_PROP_BUFFERSIZE set suppressed exception",
+                self._info.camera_id,
+                exc_info=True,
+            )
         for prop, value in self._pending_properties.items():
             cap.set(_PROPERTY_IDS[prop], value)
         self._pending_properties.clear()
@@ -132,10 +145,13 @@ class OpenCVCamera(Camera):
                 f"Failed to capture frame from camera {self._info.camera_id!r}"
             )
         self._frame_number += 1
+        mono_ns = time.monotonic_ns()
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).astype(np.uint8)
+        ts = mono_ns / 1e9
         return Frame(
             image=rgb,
-            timestamp=time.monotonic(),
+            timestamp=ts,
+            timestamp_ns=mono_ns,
             camera_id=self._info.camera_id,
             frame_number=self._frame_number,
         )

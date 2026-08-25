@@ -110,15 +110,30 @@ class Renderer(ABC):
 
 
 # ---------------------------------------------------------------------------
-# Warp engine — warps a texture onto a target mesh.
+# Warp engine — 3D scene warp (NOT projection mapping).
+# ---------------------------------------------------------------------------
+#
+# NOTE: This WarpEngine operates on 3D scene geometry (Mesh + Pose +
+#   RenderCamera).  It is the viewport/scene warp for 3D rendering,
+#   NOT the projection-mapping warp.
+#
+# For projection mapping (WarpMesh → projector output), see:
+#   services/warp_engine_cpu.ProjectionWarpEngine (CPU/native reference)
+#   infrastructure/renderer/passes/projection.ProjectionPass (realtime GPU)
+#
+# Rule:
+#   CPU/native warp engines = preprocessing/reference (offline)
+#   ProjectionPass          = realtime GPU rendering (production)
 # ---------------------------------------------------------------------------
 
 
 class WarpEngine(ABC):
-    """Warp a flat image / video onto a 3D surface.
+    """Warp a flat image / video onto a 3D surface (scene warp).
 
-    This is the core projection-mapping operation: given a source
-    texture and a target surface mesh, compute the per-pixel mapping.
+    This is the 3D-scene counterpart to ProjectionWarpEngine.
+    Given a source texture and a 3D target mesh, compute the
+    per-pixel mapping via scene camera.  Used for viewport preview,
+    NOT for projector calibration/mapping.
     """
 
     @abstractmethod

@@ -2,11 +2,54 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import ClassVar
 
 import numpy as np
 from numpy.typing import NDArray
+
+_logger = logging.getLogger(__name__)
+
+
+def _rotation_to_quat(
+    r: NDArray[np.float64],
+) -> tuple[float, float, float, float] | None:
+    if r.shape != (3, 3) or not np.all(np.isfinite(r)):
+        return None
+    if not np.allclose(r @ r.T, np.eye(3), atol=1e-6):
+        return None
+    if np.linalg.det(r) < 0.0:
+        return None
+    trace = float(np.trace(r))
+    if trace > 0.0:
+        s = float(np.sqrt(trace + 1.0)) * 2.0
+        w = 0.25 * s
+        x = (r[2, 1] - r[1, 2]) / s
+        y = (r[0, 2] - r[2, 0]) / s
+        z = (r[1, 0] - r[0, 1]) / s
+    elif r[0, 0] > r[1, 1] and r[0, 0] > r[2, 2]:
+        s = float(np.sqrt(1.0 + r[0, 0] - r[1, 1] - r[2, 2])) * 2.0
+        w = (r[2, 1] - r[1, 2]) / s
+        x = 0.25 * s
+        y = (r[0, 1] + r[1, 0]) / s
+        z = (r[0, 2] + r[2, 0]) / s
+    elif r[1, 1] > r[2, 2]:
+        s = float(np.sqrt(1.0 + r[1, 1] - r[0, 0] - r[2, 2])) * 2.0
+        w = (r[0, 2] - r[2, 0]) / s
+        x = (r[0, 1] + r[1, 0]) / s
+        y = 0.25 * s
+        z = (r[1, 2] + r[2, 1]) / s
+    else:
+        s = float(np.sqrt(1.0 + r[2, 2] - r[0, 0] - r[1, 1])) * 2.0
+        w = (r[1, 0] - r[0, 1]) / s
+        x = (r[0, 2] + r[2, 0]) / s
+        y = (r[1, 2] + r[2, 1]) / s
+        z = 0.25 * s
+    n = float(np.sqrt(w * w + x * x + y * y + z * z))
+    if n == 0.0 or not np.isfinite(n):
+        return None
+    return (float(w) / n, float(x) / n, float(y) / n, float(z) / n)
 
 
 @dataclass(frozen=True)
@@ -54,6 +97,28 @@ class Pose:
             ],
             dtype=np.float64,
         )
+
+    @classmethod
+    def from_matrix(cls, m: NDArray[np.float64]) -> Pose:
+        """Create a Pose from a 4x4 homogeneous matrix.
+
+        Image size, per_point_errors, coverage, warp_mesh and scale are not
+        stored in a Pose; only position and orientation are recovered.
+        Invalid rotation falls back to identity with a warning, preserving
+        translation.
+        """
+        if m.shape != (4, 4):
+            raise ValueError(f"Pose matrix must be (4, 4), got {m.shape}")
+        pos = Vec3(float(m[0, 3]), float(m[1, 3]), float(m[2, 3]))
+        quat = _rotation_to_quat(np.asarray(m[:3, :3], dtype=np.float64))
+        if quat is None:
+            _logger.warning(
+                "Invalid rotation matrix (non-orthonormal, negative determinant, "
+                "or non-finite); falling back to identity rotation. Matrix:\n%s",
+                m[:3, :3],
+            )
+            return cls(position=pos)
+        return cls(position=pos, rotation=quat)
 
 
 def _array_eq(a: np.ndarray | None, b: np.ndarray | None) -> bool:

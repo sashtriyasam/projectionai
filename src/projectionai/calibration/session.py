@@ -38,8 +38,32 @@ from projectionai.core.events import (
     CalibrationStarted,
     EventBus,
 )
+from projectionai.domain.calibration_session import (
+    CalibrationMethod as DomainMethod,
+)
+from projectionai.domain.calibration_session import (
+    CalibrationSession as DomainSession,
+)
+from projectionai.domain.calibration_session import (
+    CalibrationSessionStatus as DomainStatus,
+)
 
 _logger = logging.getLogger(__name__)
+
+
+_STATUS_MAP: dict[CalibrationStatus, DomainStatus] = {
+    CalibrationStatus.IDLE: DomainStatus.CREATED,
+    CalibrationStatus.CREATED: DomainStatus.CREATED,
+    CalibrationStatus.PREPARING: DomainStatus.PREPARING,
+    CalibrationStatus.ACQUIRING: DomainStatus.CAPTURING,
+    CalibrationStatus.CAPTURING: DomainStatus.CAPTURING,
+    CalibrationStatus.PROCESSING: DomainStatus.PROCESSING,
+    CalibrationStatus.SOLVING: DomainStatus.SOLVING,
+    CalibrationStatus.VALIDATING: DomainStatus.VALIDATING,
+    CalibrationStatus.COMPLETED: DomainStatus.COMPLETED,
+    CalibrationStatus.FAILED: DomainStatus.FAILED,
+    CalibrationStatus.CANCELLED: DomainStatus.CANCELLED,
+}
 
 
 @dataclass
@@ -86,6 +110,47 @@ class CalibrationSession:
     tags: list[str] = field(default_factory=list)
     custom: dict[str, Any] = field(default_factory=dict)
 
+    # Phase 6.2 domain entity (typed)
+    domain_session: DomainSession | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.domain_session is None:
+            try:
+                dom_method = DomainMethod(self.state.current_method.value)
+            except Exception:
+                dom_method = DomainMethod.MANUAL
+            dom_status = _STATUS_MAP.get(self.state.status, DomainStatus.CREATED)
+            self.domain_session = DomainSession(
+                session_id=self.id,
+                name=self.name,
+                status=dom_status,
+                projector_id=self.active_projector_id,
+                camera_id=self.active_camera_id,
+                surface_id=self.active_surface_id,
+                method=dom_method,
+                created_at=self.created_at,
+            )
+
+    def _sync_domain_status(self, status: CalibrationStatus) -> None:
+        if self.domain_session is None:
+            return
+        dom = _STATUS_MAP.get(status, DomainStatus.CREATED)
+        try:
+            self.domain_session.transition(dom)
+        except ValueError as exc:
+            _logger.warning(
+                "Rejected domain transition %s → %s: %s",
+                self.domain_session.status.value,
+                dom.value,
+                exc,
+            )
+        # sync IDs
+        object.__setattr__(
+            self.domain_session, "projector_id", self.active_projector_id
+        )
+        object.__setattr__(self.domain_session, "camera_id", self.active_camera_id)
+        object.__setattr__(self.domain_session, "surface_id", self.active_surface_id)
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -100,7 +165,16 @@ class CalibrationSession:
             raise RuntimeError(msg)
 
         self.state.status = CalibrationStatus.PREPARING
+        self._sync_domain_status(CalibrationStatus.PREPARING)
         self.state.current_method = method
+        if self.domain_session is not None:
+            object.__setattr__(
+                self.domain_session,
+                "method",
+                DomainMethod(method.value)
+                if method.value in [m.value for m in DomainMethod]
+                else DomainMethod.MANUAL,
+            )
         self.state.started_at = time.time()
         if self.state.data is None:
             from projectionai.calibration.types import (
@@ -119,12 +193,18 @@ class CalibrationSession:
         if self.state.status in (CalibrationStatus.COMPLETED, CalibrationStatus.FAILED):
             return
         self.state.status = CalibrationStatus.CANCELLED
+        self._sync_domain_status(CalibrationStatus.CANCELLED)
         _logger.info("Calibration session %s cancelled", self.id)
 
     async def fail(self, reason: str) -> None:
         """Mark the session as failed with a reason."""
         self.state.status = CalibrationStatus.FAILED
+        self._sync_domain_status(CalibrationStatus.FAILED)
         self.state.errors.append(reason)
+        if self.domain_session is not None:
+            object.__setattr__(
+                self.domain_session, "errors", (*self.domain_session.errors, reason)
+            )
         self.completed_at = time.time()
         _logger.warning("Calibration session %s failed: %s", self.id, reason)
         if self.event_bus:
@@ -144,6 +224,9 @@ class CalibrationSession:
             CalibrationStatus.CANCELLED,
         ):
             self.state.status = CalibrationStatus.COMPLETED
+            self._sync_domain_status(CalibrationStatus.COMPLETED)
+        else:
+            self._sync_domain_status(self.state.status)
 
         self.completed_at = time.time()
         self.state.elapsed_seconds = self.completed_at - self.state.started_at

@@ -196,15 +196,20 @@ class OutputManager(Manager):
         )
         self._emit_nowait(OutputPreviewChanged(session.session_id, display_id))
 
-    async def arm(self) -> ValidationReport:
+    async def arm(self, require_projector: bool = True) -> ValidationReport:
         """Validate the current routing and mark the session ``ARMED``.
 
         Safe: does not change live output. Returns the report so the UI
         can surface errors without aborting the intent.
+
+        Args:
+            require_projector: Whether to require a projector as the live target.
+                Defaults to True for production safety. Pass False only for
+                hardware validation on non-projector displays.
         """
         self._require_initialized()
         session = self._require_session()
-        report = self._validate_current(session, require_projector=True)
+        report = self._validate_current(session, require_projector=require_projector)
         if report.is_ok:
             self._record(
                 OutputSession(
@@ -219,12 +224,17 @@ class OutputManager(Manager):
             self._emit_nowait(OutputArmed(session.session_id, session.live_display_id))
         return report
 
-    async def go_live(self) -> ValidationReport:
+    async def go_live(self, require_projector: bool = True) -> ValidationReport:
         """Switch the session live — only when validation passes.
 
         The live target is resolved first (auto-routing to the first
         projector when none was chosen) and the resolved target is what
         validation runs against; output is only switched afterwards.
+
+        Args:
+            require_projector: Whether to require a projector as the live target.
+                Defaults to True for production safety. Pass False only for
+                hardware validation on non-projector displays.
 
         Raises:
             OutputSwitchError: When validation reports errors (the
@@ -232,19 +242,30 @@ class OutputManager(Manager):
         """
         self._require_initialized()
         session = self._require_session()
+
         live_id = session.live_display_id
-        if live_id is None:
-            # Auto-route to the first projector when none was chosen.
-            projectors = self._display_manager.projectors
-            if not projectors:
+        if not require_projector:
+            if live_id is None:
                 raise OutputSwitchError(
-                    "Live switch rejected: no projector available", ValidationReport()
+                    "Live switch rejected: no live target set. Call set_live_target() first.",
+                    ValidationReport(),
                 )
-            live_id = projectors[0].display_id
-            session = replace(session, live_display_id=live_id)
-        report = self._validate_current(session, require_projector=True)
+        else:
+            if live_id is None:
+                # Auto-route to the first projector when none was chosen.
+                projectors = self._display_manager.projectors
+                if not projectors:
+                    raise OutputSwitchError(
+                        "Live switch rejected: no projector available",
+                        ValidationReport(),
+                    )
+                live_id = projectors[0].display_id
+                session = replace(session, live_display_id=live_id)
+
+        report = self._validate_current(session, require_projector=require_projector)
         if not report.is_ok:
             raise OutputSwitchError(f"Live switch rejected: {report.summary}", report)
+
         self._display_manager.set_live_output(live_id)
         self._record(
             OutputSession(
@@ -450,7 +471,7 @@ class OutputManager(Manager):
         return True
 
     def _validate_current(
-        self, session: OutputSession, require_projector: bool = False
+        self, session: OutputSession, require_projector: bool = True
     ) -> ValidationReport:
         return self._validator.validate(
             ValidateInputs(

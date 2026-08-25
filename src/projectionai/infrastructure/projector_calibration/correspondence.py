@@ -31,6 +31,12 @@ _logger = logging.getLogger(__name__)
 _DEFAULT_THRESHOLD = 127
 
 
+def _to_gray(capture: NDArray[np.uint8]) -> NDArray[np.uint8]:
+    if capture.ndim == 2:
+        return capture
+    return np.asarray(cv2.cvtColor(capture, cv2.COLOR_RGB2GRAY), dtype=np.uint8)
+
+
 def gray_decode(code: NDArray[np.uint32], bits: int) -> NDArray[np.uint32]:
     """Convert gray-coded integers back to binary.
 
@@ -44,21 +50,60 @@ def gray_decode(code: NDArray[np.uint32], bits: int) -> NDArray[np.uint32]:
     return result
 
 
+def compute_lit_mask(
+    white_sentinel: NDArray[np.uint8],
+    black_sentinel: NDArray[np.uint8] | None = None,
+    threshold: int = _DEFAULT_THRESHOLD,
+) -> NDArray[np.bool_]:
+    """Mask of pixels receiving projector light, from sentinel captures.
+
+    A white-sentinel frame (every projector pixel white) lights every pixel
+    that sees the projector; occluded/shadowed pixels stay dark. This
+    distinguishes a true zero code (white sentinel bright) from no light
+    (dark) — unlike a max-intensity-over-patterns test, which false-rejects
+    the (0,0) code because that code is black in every positive pattern.
+
+    An optional black-sentinel frame tightens the mask against bright
+    ambient scenes (a lit pixel is bright in the white frame and dark in the
+    black frame).
+
+    Threshold must match the CorrespondenceMatcher threshold used for bit
+    decisions; for guaranteed consistency compute the mask via the matcher
+    or pass the same threshold value used to construct it.
+    """
+    lit: NDArray[np.bool_] = _to_gray(np.asarray(white_sentinel)) >= threshold
+    if black_sentinel is not None:
+        lit &= _to_gray(np.asarray(black_sentinel)) < threshold
+    return lit
+
+
 class CorrespondenceMatcher:
     """Decodes gray-code captures into a dense :class:`CorrespondenceMap`.
 
     Args:
         threshold: Grayscale level separating pattern black from white
-            (default 127).
+            (default 127). This is the single authoritative threshold for
+            both bit decisions and lit-mask computation.
     """
 
     def __init__(self, threshold: int = _DEFAULT_THRESHOLD) -> None:
         self._threshold = threshold
 
+    def compute_lit_mask(
+        self,
+        white_sentinel: NDArray[np.uint8],
+        black_sentinel: NDArray[np.uint8] | None = None,
+    ) -> NDArray[np.bool_]:
+        """Mask via sentinel captures using this matcher's threshold."""
+        return compute_lit_mask(
+            white_sentinel, black_sentinel, threshold=self._threshold
+        )
+
     def decode(
         self,
         captures: Sequence[NDArray[np.uint8]],
         sequence: PatternSequence,
+        lit_mask: NDArray[np.bool_] | None = None,
     ) -> CorrespondenceMap:
         """Decode captured frames into a dense correspondence map.
 
@@ -67,6 +112,11 @@ class CorrespondenceMatcher:
                 projection order. Frames may be grayscale (2D) or RGB
                 (3D, converted internally).
             sequence: The pattern sequence that was projected.
+            lit_mask: Optional per-pixel boolean mask of pixels receiving
+                projector light (see :func:`compute_lit_mask`). When given,
+                pixels outside the mask are invalidated — this rejects
+                occluded/shadowed regions that would otherwise decode to a
+                false-valid projector code (0,0).
 
         Returns:
             The dense camera-to-projector correspondence map.
@@ -113,6 +163,13 @@ class CorrespondenceMatcher:
         code_y = gray_decode(code_y, sequence.bits_y)
 
         mask = (code_x < np.uint32(width)) & (code_y < np.uint32(height))
+        if lit_mask is not None:
+            if lit_mask.shape != (height, width):
+                raise ProjectorCalibrationError(
+                    f"lit_mask shape {lit_mask.shape} does not match "
+                    f"capture {(height, width)}"
+                )
+            mask &= np.asarray(lit_mask, dtype=np.bool_)
 
         projector_x = np.full((height, width), np.nan, dtype=np.float32)
         projector_y = np.full((height, width), np.nan, dtype=np.float32)
@@ -137,6 +194,4 @@ class CorrespondenceMatcher:
     @staticmethod
     def _to_gray(capture: NDArray[np.uint8]) -> NDArray[np.uint8]:
         """Convert an RGB capture to grayscale (2D frames pass through)."""
-        if capture.ndim == 2:
-            return capture
-        return np.asarray(cv2.cvtColor(capture, cv2.COLOR_RGB2GRAY), dtype=np.uint8)
+        return _to_gray(capture)

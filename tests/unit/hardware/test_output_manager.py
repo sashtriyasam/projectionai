@@ -201,24 +201,101 @@ async def test_go_live_uses_explicit_target(output_manager: object) -> None:
     assert om.session.live_display_id == "disp-2"
 
 
-async def test_go_live_rejects_when_renderer_not_ready(
-    event_bus: FakeEventBus,
-) -> None:
-    provider = MockDisplayProvider()
+async def test_go_live_rejects_without_projector(event_bus: FakeEventBus) -> None:
+    provider = MockDisplayProvider(
+        [make_display("mon-1", 0, "Dell U2720Q", manufacturer="Dell")]
+    )
     dm = DisplayManager(event_bus, provider=provider)
     await dm.initialize()
-    om = OutputManager(
-        event_bus,
-        display_manager=dm,
-        renderer_ready_provider=lambda: False,
-    )
+    om = OutputManager(event_bus, display_manager=dm)
     await om.initialize()
     try:
         await om.begin_session()
-        with pytest.raises(OutputSwitchError) as exc_info:
+        with pytest.raises(OutputSwitchError):
             await om.go_live()
-        assert not exc_info.value.report.is_ok
-        assert om.state is OutputState.IDLE  # unchanged
+        assert om.state is OutputState.IDLE
+    finally:
+        await om.shutdown()
+        await dm.shutdown()
+
+
+async def test_go_live_allows_monitor_when_require_projector_false(
+    event_bus: FakeEventBus,
+) -> None:
+    """With require_projector=False, a monitor should be accepted as live target."""
+    provider = MockDisplayProvider(
+        [make_display("mon-1", 0, "Dell U2720Q", manufacturer="Dell")]
+    )
+    dm = DisplayManager(event_bus, provider=provider)
+    await dm.initialize()
+    om = OutputManager(event_bus, display_manager=dm)
+    await om.initialize()
+    try:
+        await om.begin_session()
+        await om.set_live_target("mon-1")
+        report = await om.go_live(require_projector=False)
+        assert report.is_ok
+        assert om.state is OutputState.LIVE
+        assert om.session.live_display_id == "mon-1"
+    finally:
+        await om.shutdown()
+        await dm.shutdown()
+
+
+async def test_arm_allows_monitor_when_require_projector_false(
+    event_bus: FakeEventBus,
+) -> None:
+    """With require_projector=False, arm should accept a monitor target."""
+    provider = MockDisplayProvider(
+        [make_display("mon-1", 0, "Dell U2720Q", manufacturer="Dell")]
+    )
+    dm = DisplayManager(event_bus, provider=provider)
+    await dm.initialize()
+    om = OutputManager(event_bus, display_manager=dm)
+    await om.initialize()
+    try:
+        await om.begin_session()
+        report = await om.arm(require_projector=False)
+        assert report.is_ok
+        assert om.state is OutputState.ARMED
+    finally:
+        await om.shutdown()
+        await dm.shutdown()
+
+
+async def test_arm_default_requires_projector(event_bus: FakeEventBus) -> None:
+    """Default behavior (require_projector=True) should reject monitor."""
+    provider = MockDisplayProvider(
+        [make_display("mon-1", 0, "Dell U2720Q", manufacturer="Dell")]
+    )
+    dm = DisplayManager(event_bus, provider=provider)
+    await dm.initialize()
+    om = OutputManager(event_bus, display_manager=dm)
+    await om.initialize()
+    try:
+        await om.begin_session()
+        report = await om.arm()  # default require_projector=True
+        assert not report.is_ok
+        assert om.state is OutputState.IDLE  # not armed
+    finally:
+        await om.shutdown()
+        await dm.shutdown()
+
+
+async def test_go_live_default_requires_projector(event_bus: FakeEventBus) -> None:
+    """Default behavior (require_projector=True) should reject monitor."""
+    provider = MockDisplayProvider(
+        [make_display("mon-1", 0, "Dell U2720Q", manufacturer="Dell")]
+    )
+    dm = DisplayManager(event_bus, provider=provider)
+    await dm.initialize()
+    om = OutputManager(event_bus, display_manager=dm)
+    await om.initialize()
+    try:
+        await om.begin_session()
+        with pytest.raises(OutputSwitchError):
+            await om.go_live()  # default require_projector=True
+        assert om.state is OutputState.IDLE
     finally:
         await om.shutdown()
         await dm.shutdown()
@@ -251,7 +328,9 @@ async def test_go_live_rejects_when_no_output_window(
         await dm.shutdown()
 
 
-async def test_go_live_rejects_without_projector(event_bus: FakeEventBus) -> None:
+async def test_go_live_rejects_without_projector_when_monitor_only(
+    event_bus: FakeEventBus,
+) -> None:
     provider = MockDisplayProvider(
         [make_display("mon-1", 0, "Dell U2720Q", manufacturer="Dell")]
     )

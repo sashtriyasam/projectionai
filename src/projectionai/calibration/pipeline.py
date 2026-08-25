@@ -20,30 +20,52 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypedDict
 
 from projectionai.calibration.types import CalibrationStageType
 
 _logger = logging.getLogger(__name__)
 
 
+class PipelineData(TypedDict, total=False):
+    frames: Any
+    detections: Any
+    camera_calibration: Any
+    projector_frames: Any
+    pattern_sequence: Any
+    projector_resolution: Any
+    calibrated_camera: Any
+    surface_plane: Any
+    projector_calibration: Any
+    projector_correspondences: Any
+    correspondence_map: Any
+    correspondence_set: Any
+    correspondences: Any
+    reconstruction: Any
+    reconstructions: Any
+    calibration_result: Any
+    calibration_solve_config: Any
+
+
 @dataclass
 class StageContext:
-    """Shared context passed between pipeline stages.
+    """Shared context passed between pipeline stages."""
 
-    Each stage reads from and writes to this context. The context
-    accumulates data as the pipeline progresses: earlier stages
-    produce data that later stages consume.
-
-    The ``data`` dict is intentionally untyped to allow flexible
-    stage implementations. Key conventions should be documented
-    by each stage implementation.
-    """
-
-    data: dict[str, Any] = field(default_factory=dict)
+    data: PipelineData = field(default_factory=dict)  # type: ignore[assignment]
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     timings: dict[str, float] = field(default_factory=dict)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.data.get(key, default)
+
+    def set(self, key: str, value: Any) -> None:
+        self.data[key] = value  # type: ignore
+
+    def require(self, key: str) -> Any:
+        if key not in self.data:
+            raise KeyError(f"StageContext missing required key: {key!r}")
+        return self.data[key]  # type: ignore
 
 
 class CalibrationStage(ABC):

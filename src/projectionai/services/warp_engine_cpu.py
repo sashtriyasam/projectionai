@@ -55,11 +55,14 @@ _logger = logging.getLogger(__name__)
 
 
 class ProjectionWarpEngine(ABC):
-    """Abstract base for projection-mapping warp engines.
+    """Abstract base for projection-mapping warp engines (offline/reference).
 
     This is the projection-mapping counterpart to the scene-based
     ``WarpEngine`` ABC in ``services/renderer.py``.  It operates on
     warp meshes and source textures rather than 3D scene meshes.
+
+    Used for CPU/native preprocessing and golden-reference validation.
+    Realtime GPU projection uses ``ProjectionPass`` (ModernGL), not this.
     """
 
     @abstractmethod

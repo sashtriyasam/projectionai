@@ -90,8 +90,11 @@ class RawJsonExporter(CalibrationExporter):
         return data
 
     @staticmethod
-    def _to_dict(result: CalibrationResult) -> dict[str, Any]:
-        """Convert result + data to a JSON-safe dictionary."""
+    def _to_dict(result: Any) -> dict[str, Any]:
+        if hasattr(result, "projector_intrinsics") and hasattr(
+            result, "calibration_id"
+        ):
+            return result.to_dict()  # type: ignore[no-any-return]
         base: dict[str, Any] = {
             "success": result.success,
             "quality_score": result.quality_score,

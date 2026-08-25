@@ -77,7 +77,14 @@ class RawJsonImporter(CalibrationImporter):
 
     @staticmethod
     def _from_dict(data: dict[str, Any]) -> CalibrationResult:
-        """Reconstruct a CalibrationResult from a dict."""
+        if "projector_intrinsics" in data and "calibration_id" in data:
+            from projectionai.calibration.types import canonical_to_legacy_result
+            from projectionai.domain.calibration_session import (
+                CalibrationResult as Canonical,
+            )
+
+            canonical = Canonical.from_dict(data)
+            return canonical_to_legacy_result(canonical)
         cal_data = None
         raw_data = data.get("data")
         if raw_data is not None:

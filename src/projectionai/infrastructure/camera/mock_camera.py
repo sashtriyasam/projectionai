@@ -82,9 +82,11 @@ class MockCamera(Camera):
         if not self._open:
             raise CameraUnavailableError(f"Camera {self._info.camera_id!r} is not open")
         self._frame_number += 1
+        ts = time.monotonic()
         return Frame(
             image=self._synthesize(),
-            timestamp=time.monotonic(),
+            timestamp=ts,
+            timestamp_ns=time.monotonic_ns(),
             camera_id=self._info.camera_id,
             frame_number=self._frame_number,
         )

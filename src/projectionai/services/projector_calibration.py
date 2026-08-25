@@ -49,7 +49,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 from numpy.typing import NDArray
@@ -63,6 +63,10 @@ if TYPE_CHECKING:
 
 class ProjectorCalibrationError(ProjectionAIError):
     """Raised when projector calibration cannot be computed."""
+
+
+class PatternMismatchError(ProjectorCalibrationError):
+    """Raised when a captured frame's sequence/pattern pairing is incorrect."""
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +392,48 @@ class ProjectorCalibrationResult:
     camera_matrix: NDArray[np.float64]
     distortion_coeffs: NDArray[np.float64]
     image_size: tuple[int, int]
+
+    def to_canonical(
+        self,
+        calibration_id: str | None = None,
+        sequence_id: str | None = None,
+        projector_id: str = "projector_0",
+        camera_id: str = "camera_0",
+        surface_id: str = "",
+        method: str = "gray_code",
+    ) -> Any:
+        """Adapt to canonical domain CalibrationResult."""
+        import time as _time
+        import uuid as _uuid
+
+        from projectionai.domain.calibration_session import (
+            CalibrationMethod as _Method,
+        )
+        from projectionai.domain.calibration_session import (
+            CalibrationResult as _Canonical,
+        )
+
+        return _Canonical(
+            calibration_id=calibration_id or _uuid.uuid4().hex,
+            sequence_id=sequence_id or _uuid.uuid4().hex,
+            method=_Method(str(method)),
+            projector_id=projector_id,
+            camera_id=camera_id,
+            surface_id=surface_id,
+            projector_intrinsics=self.projector_intrinsics,
+            projector_pose=self.projector_pose,
+            projector_resolution=self.projector_resolution,
+            reprojection_error=self.reprojection_error,
+            coverage=self.coverage,
+            num_correspondences=self.num_correspondences,
+            confidence=self.confidence,
+            per_point_errors=self.per_point_errors,
+            camera_matrix=self.camera_matrix,
+            distortion_coeffs=self.distortion_coeffs,
+            image_size=self.image_size,
+            created_at=_time.time(),
+            metadata={},
+        )
 
 
 # ---------------------------------------------------------------------------

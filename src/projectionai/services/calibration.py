@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -21,7 +22,11 @@ from projectionai.domain.calibration import (
     CalibrationResult,
     ProjectorCalibration,
 )
+from projectionai.domain.calibration_session import (
+    CalibrationResult as DomainCalibrationResult,
+)
 from projectionai.domain.geometry import Mesh, Vec3
+from projectionai.domain.projection import ProjectionMapping
 from projectionai.domain.transforms import (
     ProjectorIntrinsics,
     Transform,
@@ -127,7 +132,7 @@ class CalibrationToWarpMeshError(Exception):
 
 
 def calibration_to_warp_mesh(
-    calibration: CalibrationResult,
+    calibration: DomainCalibrationResult | CalibrationResult,
     surface_width_m: float,
     surface_height_m: float,
     projector_index: int = 0,
@@ -165,6 +170,16 @@ def calibration_to_warp_mesh(
     CalibrationToWarpMeshError
         If the calibration data is incomplete or the projection is invalid.
     """
+    if isinstance(calibration, DomainCalibrationResult):
+        return _canonical_to_warp_mesh(
+            calibration,
+            surface_width_m,
+            surface_height_m,
+            grid_rows=grid_rows,
+            grid_cols=grid_cols,
+            surface_id=surface_id,
+        )
+    # Legacy CalibrationResult path
     if not calibration.projectors:
         raise CalibrationToWarpMeshError("Calibration contains no projector data")
     if projector_index >= len(calibration.projectors):
@@ -204,18 +219,6 @@ def calibration_to_warp_mesh(
             f"Projector pose matrix is invalid or singular: {exc}"
         ) from exc
 
-    # --- Surface-local corner positions (Z=0 plane) -------------------------
-    hw = surface_width_m * 0.5
-    hh = surface_height_m * 0.5
-    # Surface-local: X right, Y up, origin at centre
-    corners_local = [
-        Vec3(-hw, -hh, 0.0),  # bottom-left
-        Vec3(hw, -hh, 0.0),  # bottom-right
-        Vec3(hw, hh, 0.0),  # top-right
-        Vec3(-hw, hh, 0.0),  # top-left
-    ]
-
-    # --- Transform: surface-local → world → projector_local → UV -------------
     # If calibration has object_pose, apply it (surface-local → world).
     # Otherwise assume identity (surface is already in world frame).
     if calibration.object_pose is not None:
@@ -223,47 +226,15 @@ def calibration_to_warp_mesh(
     else:
         surface_to_world = Transform()  # identity
 
-    projector_uv_corners: list[tuple[float, float]] = []
-    for corner in corners_local:
-        # surface-local → world
-        point_world = surface_to_world.apply_point(corner)
-        # world → projector_local
-        point_proj = world_to_projector.apply_point(point_world)
-        # projector_local → projector_pixel via pinhole
-        try:
-            pixel = intrinsics.project_point(point_proj)
-        except ValueError as exc:
-            raise CalibrationToWarpMeshError(
-                f"Corner {corner} projects behind projector plane: {exc}"
-            ) from exc
-        # pixel → UV [0,1]
-        uv = intrinsics.pixel_to_uv(pixel)
-        projector_uv_corners.append(uv)
-
-    # --- Per-vertex projector UVs (perspective-correct) ----------------------
-    num_verts = (grid_rows + 1) * (grid_cols + 1)
-    projector_uvs_full = np.zeros((num_verts, 2), dtype=np.float64)
-    idx = 0
-    for r in range(grid_rows + 1):
-        for c in range(grid_cols + 1):
-            s = c / grid_cols
-            t = r / grid_rows
-            x = -hw + s * surface_width_m
-            y = -hh + t * surface_height_m
-            pt_local = Vec3(x, y, 0.0)
-            pt_world = surface_to_world.apply_point(pt_local)
-            pt_proj = world_to_projector.apply_point(pt_world)
-            try:
-                pixel = intrinsics.project_point(pt_proj)
-            except ValueError as exc:
-                raise CalibrationToWarpMeshError(
-                    f"Grid vertex ({x:.4f}, {y:.4f}) projects behind "
-                    f"projector plane: {exc}"
-                ) from exc
-            uv = intrinsics.pixel_to_uv(pixel)
-            projector_uvs_full[idx, 0] = uv[0]
-            projector_uvs_full[idx, 1] = uv[1]
-            idx += 1
+    projector_uv_corners, projector_uvs_full = _compute_warp_uvs(
+        intrinsics,
+        world_to_projector,
+        surface_to_world,
+        surface_width_m,
+        surface_height_m,
+        grid_rows,
+        grid_cols,
+    )
 
     # --- Build the warp mesh -------------------------------------------------
     proj_id = pc.projector_id or f"projector_{projector_index}"
@@ -302,6 +273,94 @@ def calibration_to_warp_mesh(
     return mesh
 
 
+def _canonical_to_warp_mesh(
+    calibration: Any,
+    surface_width_m: float,
+    surface_height_m: float,
+    grid_rows: int = 4,
+    grid_cols: int = 4,
+    surface_id: str = "",
+    apply_distortion: bool = False,
+    distortion_coeffs: Any | None = None,  # noqa: ARG001 — reserved for future distortion model
+) -> WarpMesh:
+    if surface_width_m <= 0 or surface_height_m <= 0:
+        raise CalibrationToWarpMeshError(
+            f"Surface dimensions must be positive, got {surface_width_m}x{surface_height_m}"
+        )
+    if grid_rows <= 0 or grid_cols <= 0:
+        raise CalibrationToWarpMeshError(
+            f"Grid subdivisions must be positive, got grid_rows={grid_rows}, grid_cols={grid_cols}"
+        )
+    # ID mismatch guard
+    cal_surf = getattr(calibration, "surface_id", "")
+    if surface_id and cal_surf and surface_id != cal_surf:
+        raise CalibrationToWarpMeshError(
+            f"Surface ID mismatch: calibration {cal_surf!r} vs requested {surface_id!r}"
+        )
+    # Distortion is pinhole-only in this phase; interface reserved for future
+    if apply_distortion:
+        raise NotImplementedError(
+            "Distortion correction not yet implemented — keep apply_distortion=False"
+        )
+    k = calibration.projector_intrinsics
+    intr = ProjectorIntrinsics(
+        fx=float(k[0, 0]),
+        fy=float(k[1, 1]),
+        cx=float(k[0, 2]),
+        cy=float(k[1, 2]),
+        resolution_x=int(calibration.projector_resolution[0]),
+        resolution_y=int(calibration.projector_resolution[1]),
+    )
+    pose = calibration.projector_pose
+    try:
+        world_to_proj = Transform.from_numpy(np.linalg.inv(pose))
+    except Exception as exc:
+        raise CalibrationToWarpMeshError(f"Projector pose invalid: {exc}") from exc
+    obj_pose = getattr(calibration, "object_pose", None)
+    if obj_pose is not None:
+        surface_to_world = Transform.from_numpy(obj_pose.as_matrix())
+    else:
+        surface_to_world = Transform()
+    uv_corners, uvs_full = _compute_warp_uvs(
+        intr,
+        world_to_proj,
+        surface_to_world,
+        surface_width_m,
+        surface_height_m,
+        grid_rows,
+        grid_cols,
+    )
+    sid = surface_id or getattr(calibration, "surface_id", "") or "calibration_surface"
+    pid = getattr(calibration, "projector_id", "") or "projector_0"
+    mesh = create_planar_grid_warp_mesh(
+        surface_id=sid,
+        projector_id=pid,
+        width_m=surface_width_m,
+        height_m=surface_height_m,
+        grid_rows=grid_rows,
+        grid_cols=grid_cols,
+        projector_uv_corners=(
+            uv_corners[0],
+            uv_corners[1],
+            uv_corners[2],
+            uv_corners[3],
+        ),
+        generation_method=WarpMeshGeneration.CALIBRATION,
+        metadata={
+            "source": "canonical_to_warp_mesh",
+            "reprojection_error": calibration.reprojection_error,
+            "confidence": calibration.confidence,
+        },
+        projector_uvs_full=uvs_full,
+    )
+    errs = mesh.validate()
+    if errs:
+        raise CalibrationToWarpMeshError(
+            f"Generated warp mesh invalid: {'; '.join(errs)}"
+        )
+    return mesh
+
+
 def _projector_intrinsics_from_calibration(
     pc: ProjectorCalibration,
 ) -> ProjectorIntrinsics:
@@ -331,4 +390,118 @@ def _projector_intrinsics_from_calibration(
         cy=cy,
         resolution_x=res_x,
         resolution_y=res_y,
+    )
+
+
+def _compute_warp_uvs(
+    intrinsics: ProjectorIntrinsics,
+    world_to_projector: Transform,
+    surface_to_world: Transform,
+    surface_width_m: float,
+    surface_height_m: float,
+    grid_rows: int,
+    grid_cols: int,
+) -> tuple[list[tuple[float, float]], Any]:
+    """Shared warp-mesh UV computation for both calibration paths.
+
+    Projects the four surface corners and every grid vertex
+    (surface-local → world → projector_local → pixel → UV) and returns
+    the corner UVs and the full per-vertex UV array. Raises
+    ``CalibrationToWarpMeshError`` when a point projects behind the
+    projector plane.
+    """
+    hw = surface_width_m * 0.5
+    hh = surface_height_m * 0.5
+    corners_local = [
+        Vec3(-hw, -hh, 0.0),  # bottom-left
+        Vec3(hw, -hh, 0.0),  # bottom-right
+        Vec3(hw, hh, 0.0),  # top-right
+        Vec3(-hw, hh, 0.0),  # top-left
+    ]
+    uv_corners: list[tuple[float, float]] = []
+    for corner in corners_local:
+        pt_world = surface_to_world.apply_point(corner)
+        pt_proj = world_to_projector.apply_point(pt_world)
+        try:
+            pix = intrinsics.project_point(pt_proj)
+        except ValueError as exc:
+            raise CalibrationToWarpMeshError(
+                f"Corner {corner} projects behind projector plane: {exc}"
+            ) from exc
+        uv_corners.append(intrinsics.pixel_to_uv(pix))
+    num_verts = (grid_rows + 1) * (grid_cols + 1)
+    uvs_full = np.zeros((num_verts, 2), dtype=np.float64)
+    idx = 0
+    for r in range(grid_rows + 1):
+        for c in range(grid_cols + 1):
+            s = c / grid_cols
+            t = r / grid_rows
+            pt_local = Vec3(-hw + s * surface_width_m, -hh + t * surface_height_m, 0.0)
+            pt_world = surface_to_world.apply_point(pt_local)
+            pt_proj = world_to_projector.apply_point(pt_world)
+            try:
+                pix = intrinsics.project_point(pt_proj)
+            except ValueError as exc:
+                raise CalibrationToWarpMeshError(
+                    f"Grid vertex projects behind plane: {exc}"
+                ) from exc
+            uv = intrinsics.pixel_to_uv(pix)
+            uvs_full[idx, 0] = uv[0]
+            uvs_full[idx, 1] = uv[1]
+            idx += 1
+    return uv_corners, uvs_full
+
+
+def create_projection_mapping(
+    calibration: Any,
+    warp_mesh: WarpMesh,
+    warp_mesh_asset_id: str,
+    surface_id: str = "",
+    projector_id: str = "",
+) -> ProjectionMapping:
+    """Create a ProjectionMapping that references a validated calibration and warp mesh.
+
+    Validates ID consistency and mesh validity. WarpMesh is stored as an Asset;
+    only its asset ID is embedded in the mapping.
+    """
+    cal_proj = getattr(calibration, "projector_id", "")
+    cal_surf = getattr(calibration, "surface_id", "")
+    cal_id = getattr(calibration, "calibration_id", "")
+    if not cal_id:
+        raise ValueError("CalibrationResult must have a calibration_id")
+    pid = projector_id or cal_proj or warp_mesh.projector_id
+    sid = surface_id or cal_surf or warp_mesh.surface_id
+    if cal_proj and pid != cal_proj:
+        raise ValueError(
+            f"Projector ID mismatch: calibration {cal_proj!r} vs mapping {pid!r}"
+        )
+    if cal_surf and sid != cal_surf:
+        raise ValueError(
+            f"Surface ID mismatch: calibration {cal_surf!r} vs mapping {sid!r}"
+        )
+    if warp_mesh.projector_id and pid != warp_mesh.projector_id:
+        raise ValueError(
+            f"WarpMesh projector_id {warp_mesh.projector_id!r} != mapping {pid!r}"
+        )
+    if warp_mesh.surface_id and sid != warp_mesh.surface_id:
+        raise ValueError(
+            f"WarpMesh surface_id {warp_mesh.surface_id!r} != mapping {sid!r}"
+        )
+    if not warp_mesh_asset_id:
+        raise ValueError("warp_mesh_asset_id must be non-empty")
+    errs = warp_mesh.validate()
+    if errs:
+        raise ValueError(f"WarpMesh invalid: {'; '.join(errs)}")
+    return ProjectionMapping(
+        projector_id=pid,
+        surface_id=sid,
+        calibration_id=cal_id,
+        warp_mesh_asset_id=warp_mesh_asset_id,
+        metadata={
+            "calibration_sequence_ids": list(
+                getattr(calibration, "calibration_sequence_ids", ())
+            ),
+            "reprojection_error": getattr(calibration, "reprojection_error", 0.0),
+            "coverage": getattr(calibration, "coverage", 0.0),
+        },
     )

@@ -11,6 +11,12 @@ add_library(warp_engine STATIC
 )
 target_include_directories(warp_engine PUBLIC include)
 
+# Reconstruction kernels library (static, for testing)
+add_library(reconstruction STATIC
+    src/reconstruction.cpp
+)
+target_include_directories(reconstruction PUBLIC include)
+
 # Test executable (standalone, no pybind11 dependency)
 add_executable(warp_engine_test
     tests/test_warp_engine.cpp

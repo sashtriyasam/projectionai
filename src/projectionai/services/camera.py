@@ -15,7 +15,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -56,12 +56,34 @@ class CameraInfo:
 
 @dataclass(frozen=True)
 class Frame:
-    """A single captured frame in RGB color space."""
+    """A single captured frame in RGB color space.
+
+    Extended in Phase 6.2 with optional sync metadata for calibration.
+    All new fields are optional with safe defaults to preserve
+    backward compatibility with existing captures and tests.
+
+    Timestamp contract: ``timestamp`` is ``time.monotonic()`` seconds and
+    ``timestamp_ns`` is ``time.monotonic_ns()`` (nanoseconds) — both from
+    the same monotonic clock domain as ``presentation_timestamp_ns``. Camera
+    implementations (``MockCamera``, ``OpenCVCamera``) must use this domain
+    so that ``capture_latency_ms = (capture_ns - presentation_ns) / 1e6``
+    is computed from compatible timestamps. When ``timestamp_ns`` is absent,
+    the sync layer falls back to ``time.monotonic_ns()`` at capture time.
+    """
 
     image: NDArray[np.uint8] = field(compare=False)  # (H, W, 3) RGB
     timestamp: float  # time.monotonic() seconds
     camera_id: str
     frame_number: int
+    # -- Phase 6.2/6.4 sync metadata (optional, forward-compatible) --------
+    timestamp_ns: int | None = None  # monotonic ns (time.monotonic_ns())
+    presentation_timestamp_ns: int | None = None
+    exposure_ms: float | None = None
+    gain: float | None = None
+    sequence_id: str | None = None
+    pattern_id: int | None = None
+    capture_latency_ms: float | None = None
+    projector_state: str | None = None
 
     @property
     def width(self) -> int:
@@ -72,6 +94,33 @@ class Frame:
     def height(self) -> int:
         """Frame height in pixels."""
         return int(self.image.shape[0])
+
+    def to_camera_capture(self) -> Any:
+        """Adapt this Frame to domain CameraCapture."""
+        import time as _time
+
+        from projectionai.domain.calibration_session import CameraCapture
+
+        ts_ns = self.timestamp_ns
+        if ts_ns is None:
+            if self.timestamp >= 0:
+                ts_ns = int(self.timestamp * 1_000_000_000)
+            else:
+                ts_ns = _time.monotonic_ns()
+        return CameraCapture(
+            image=self.image,
+            timestamp=self.timestamp,
+            timestamp_ns=ts_ns,
+            camera_id=self.camera_id,
+            frame_number=self.frame_number,
+            sequence_id=self.sequence_id or "",
+            pattern_id=self.pattern_id if self.pattern_id is not None else -1,
+            projector_state=self.projector_state or "unknown",
+            presentation_timestamp_ns=self.presentation_timestamp_ns,
+            capture_latency_ms=self.capture_latency_ms,
+            exposure_ms=self.exposure_ms,
+            gain=self.gain,
+        )
 
 
 # ---------------------------------------------------------------------------

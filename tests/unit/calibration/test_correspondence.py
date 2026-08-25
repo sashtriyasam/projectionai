@@ -10,10 +10,13 @@ import pytest
 
 from projectionai.infrastructure.projector_calibration.correspondence import (
     CorrespondenceMatcher,
+    compute_lit_mask,
     gray_decode,
 )
 from projectionai.infrastructure.projector_calibration.patterns import (
     GrayCodePatternGenerator,
+    build_black_sentinel,
+    build_white_sentinel,
     gray_encode,
 )
 from projectionai.services.projector_calibration import (
@@ -175,3 +178,86 @@ class TestDecode:
         )
         result = matcher.decode(synthetic_captures(sequence), remapped)
         assert result.num_correspondences > 0.8 * HEIGHT * WIDTH
+
+
+class TestLitMaskOcclusion:
+    """Occluded/shadowed pixels must not decode to a false-valid (0,0) code."""
+
+    @staticmethod
+    def _occluded_captures(
+        sequence: PatternSequence, occ_mask: np.ndarray
+    ) -> list[np.ndarray]:
+        """Captures where every pixel in occ_mask is forced black (no light)."""
+        return [
+            np.where(occ_mask, 0, p.image).astype(np.uint8) for p in sequence.patterns
+        ]
+
+    def test_baseline_marks_occluded_pixels_valid(self) -> None:
+        # Without a lit mask, an occluded pixel sees black in every pattern,
+        # decodes to code (0,0), and is marked valid (the false-valid bug).
+        W, H = 64, 48
+        sequence = GrayCodePatternGenerator().build_sequence(W, H)
+        occ = np.zeros((H, W), bool)
+        occ[20:28, 20:28] = True
+        captures = self._occluded_captures(sequence, occ)
+        result = CorrespondenceMatcher().decode(captures, sequence)
+        # occluded region is (wrongly) inside the valid mask
+        assert np.all(result.mask[occ])
+
+    def test_lit_mask_invalidates_occluded_pixels(self) -> None:
+        W, H = 64, 48
+        sequence = GrayCodePatternGenerator().build_sequence(W, H)
+        occ = np.zeros((H, W), bool)
+        occ[20:28, 20:28] = True
+        captures = self._occluded_captures(sequence, occ)
+        white = build_white_sentinel(W, H)
+        white[occ] = 0  # occluded region stays dark in the white sentinel
+        lit = compute_lit_mask(white)
+        result = CorrespondenceMatcher().decode(captures, sequence, lit_mask=lit)
+        # occluded region must be excluded from the valid mask
+        assert not np.any(result.mask[occ])
+        # and lit pixels still decode
+        assert result.num_correspondences > 0.8 * (W * H - int(occ.sum()))
+
+    def test_compute_lit_mask_distinguishes_true_zero_from_occlusion(self) -> None:
+        # A true zero-code pixel (sees projector (0,0)) is WHITE in the white
+        # sentinel; an occluded pixel is dark in both.
+        white = np.full((2, 2), 255, np.uint8)
+        white[1, 1] = 0  # occluded
+        black = build_black_sentinel(2, 2)
+        black[1, 1] = 255  # occluded pixel: ambient, bright in black sentinel
+        lit = compute_lit_mask(white, black)
+        assert bool(lit[0, 0])  # true zero code -> lit (distinguished)
+        assert bool(lit[0, 1])
+        assert not bool(lit[1, 1])  # occluded -> rejected
+
+    def test_lit_mask_shape_mismatch_rejected(self) -> None:
+        W, H = 64, 48
+        sequence = GrayCodePatternGenerator().build_sequence(W, H)
+        captures = [p.image.copy() for p in sequence.patterns]
+        with pytest.raises(ProjectorCalibrationError, match="lit_mask"):
+            CorrespondenceMatcher().decode(
+                captures, sequence, lit_mask=np.zeros((H + 1, W), bool)
+            )
+
+    def test_compute_lit_mask_rgb_inputs(self) -> None:
+        W, H = 64, 48
+        white_rgb = np.full((H, W, 3), 255, np.uint8)
+        black_rgb = np.zeros((H, W, 3), np.uint8)
+        occ = np.zeros((H, W), bool)
+        occ[10:20, 10:20] = True
+        white_rgb[occ] = 0
+        black_rgb[occ] = 255
+        lit = compute_lit_mask(white_rgb, black_rgb)
+        assert lit.shape == (H, W)
+        assert lit.dtype == np.bool_
+        assert not np.any(lit[occ])
+        assert np.all(lit[~occ])
+
+    def test_compute_lit_mask_threshold_specific(self) -> None:
+        white = np.full((2, 2), 200, np.uint8)
+        black = np.zeros((2, 2), np.uint8)
+        lit_default = compute_lit_mask(white, black)
+        lit_high = compute_lit_mask(white, black, threshold=220)
+        assert bool(lit_default[0, 0])
+        assert not bool(lit_high[0, 0])

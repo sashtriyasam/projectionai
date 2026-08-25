@@ -37,6 +37,21 @@ def gray_encode(values: NDArray[np.uint32]) -> NDArray[np.uint32]:
     return values ^ (values >> np.uint32(1))
 
 
+def build_white_sentinel(width: int, height: int) -> NDArray[np.uint8]:
+    """All-white frame: lights every pixel that receives projector output.
+
+    Used as an occlusion detector — a camera pixel that stays dark in the
+    white sentinel is shadowed/occluded, even when its gray code decodes to
+    a valid coordinate.
+    """
+    return np.full((height, width), 255, dtype=np.uint8)
+
+
+def build_black_sentinel(width: int, height: int) -> NDArray[np.uint8]:
+    """All-black frame; the complement of the white sentinel."""
+    return np.zeros((height, width), dtype=np.uint8)
+
+
 class StructuredLightPatternGenerator(ABC):
     """Strategy interface for structured light pattern families.
 
