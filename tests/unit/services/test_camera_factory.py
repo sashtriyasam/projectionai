@@ -67,7 +67,7 @@ def test_create_opencv_registers_default_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The default runtime provider is creatable without prior imports."""
-    from projectionai.infrastructure.camera.opencv_camera import (  # noqa: F401
+    from projectionai.infrastructure.camera.opencv_camera import (
         OpenCVCameraProvider,
     )
 

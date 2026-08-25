@@ -13,7 +13,6 @@ from typing import Any
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import pytest
 from PySide6.QtWidgets import QApplication, QToolButton
 
 from projectionai.core.errors import ProjectionAIError
@@ -32,14 +31,7 @@ from projectionai.hardware.output_manager import OutputState
 from projectionai.hardware.patterns import PatternKind
 from projectionai.ui.panels.displays_panel import DisplaysPanel
 
-
-@pytest.fixture(scope="module")
-def qapp() -> QApplication:
-    """Return the process-wide QApplication (created once)."""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    return app
+# qapp provided by pytest-qt (function-scoped) - custom module fixture removed to avoid leak
 
 
 class _FakeViewModel:

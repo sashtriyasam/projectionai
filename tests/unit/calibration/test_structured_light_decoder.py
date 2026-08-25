@@ -12,11 +12,11 @@ from projectionai.domain.calibration_session import (
     CameraCapture,
 )
 from projectionai.services.pattern_engine import PatternEngine
-from projectionai.services.structured_light_decoder import (
-    StructuredLightDecoder,
-    StructuredLightDecodeError,
-)
 from projectionai.services.projector_calibration import ProjectorCalibrationError
+from projectionai.services.structured_light_decoder import (
+    StructuredLightDecodeError,
+    StructuredLightDecoder,
+)
 
 
 def _synthetic_frames_identity(

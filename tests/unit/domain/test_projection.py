@@ -135,10 +135,10 @@ class TestCropRegion:
     def test_to_projector_pixels(self) -> None:
         crop = CropRegion(x=0.1, y=0.2, width=0.5, height=0.5, enabled=True)
         x, y, w, h = crop.to_projector_pixels(1920, 1080)
-        assert x == int(round(0.1 * 1920))
-        assert y == int(round(0.2 * 1080))
-        assert w == int(round(0.5 * 1920))
-        assert h == int(round(0.5 * 1080))
+        assert x == round(0.1 * 1920)
+        assert y == round(0.2 * 1080)
+        assert w == round(0.5 * 1920)
+        assert h == round(0.5 * 1080)
 
     def test_to_projector_pixels_disabled(self) -> None:
         crop = CropRegion(enabled=False)
@@ -373,8 +373,9 @@ class TestProjectIntegration:
         assert not_found is None
 
     def test_projection_modified_touch(self) -> None:
-        from projectionai.domain.project import Project
         import time
+
+        from projectionai.domain.project import Project
 
         project = Project(name="Test")
         mapping = ProjectionMapping(
@@ -393,13 +394,8 @@ class TestBackwardCompatibility:
     """Tests for backward compatibility with projects without projections."""
 
     def test_project_without_projections_serializes(self) -> None:
+
         from projectionai.domain.project import Project
-        from projectionai.infrastructure.persistence.project_format import (
-            _write_manifest,
-            write_project,
-            read_project,
-        )
-        from pathlib import Path
 
         project = Project(name="Old Project")
         # Simulate an old project without projections field
@@ -409,11 +405,11 @@ class TestBackwardCompatibility:
 
     def test_read_old_project_format(self) -> None:
         """Test reading a project.json without projections field."""
-        from projectionai.domain.project import Project
-        from projectionai.infrastructure.persistence.project_format import read_project
-        from pathlib import Path
         import json
         import tempfile
+        from pathlib import Path
+
+        from projectionai.infrastructure.persistence.project_format import read_project
 
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "old.projectai"

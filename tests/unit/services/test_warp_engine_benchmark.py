@@ -21,8 +21,8 @@ from projectionai.domain.warp_mesh import (
     WarpMeshGeneration,
     create_planar_grid_warp_mesh,
 )
-from projectionai.services.warp_engine_cpu import CpuWarpEngine
 from projectionai.services.warp_engine_cpp import CppWarpEngine
+from projectionai.services.warp_engine_cpu import CpuWarpEngine
 
 if TYPE_CHECKING:
     from projectionai.domain.warp_mesh import WarpMesh

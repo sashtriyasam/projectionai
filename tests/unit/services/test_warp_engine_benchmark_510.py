@@ -7,7 +7,6 @@ Measures median, mean, p95, worst, throughput, and memory behavior.
 from __future__ import annotations
 
 import gc
-import statistics
 import time
 from dataclasses import dataclass
 from typing import Any

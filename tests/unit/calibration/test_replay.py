@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-import tempfile
 from pathlib import Path
 
 import cv2
-import numpy as np
 import pytest
 
 from projectionai.calibration.replay import (
+    CalibrationReplay,
     ReplayError,
     export_replay_artifact,
     import_replay_artifact,
-    CalibrationReplay,
 )
 from tests.unit.calibration._synthetic_scene import (
     SYNTHETIC_CAMERA,

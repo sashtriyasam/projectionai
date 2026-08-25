@@ -3,7 +3,6 @@
 Covers Section 2 (WarpMesh contract) and Section 4 (planar reference case).
 """
 
-import math
 
 import numpy as np
 import pytest
@@ -14,7 +13,6 @@ from projectionai.domain.warp_mesh import (
     create_identity_warp_mesh,
     create_planar_grid_warp_mesh,
 )
-
 
 # =============================================================================
 # WarpMesh construction & properties

@@ -155,15 +155,11 @@ class TestCalibrationToWarpMesh:
     def test_with_rotation_and_translation(self):
         """Rotation + translation should differ from translation-only and
         from bilinear corner interpolation at an interior mesh vertex."""
-        import numpy as np
-
-        from projectionai.domain.coordinates import (
-            projector_uv_to_pixel,
-            projector_pixel_to_uv,
-        )
-
         # 45° rotation around Y-axis + translation
         import math
+
+        import numpy as np
+
 
         half = math.radians(22.5)
         # Quaternion for 45° around Y: (cos(22.5°), 0, sin(22.5°), 0)

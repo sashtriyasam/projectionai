@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 
 from projectionai.domain.calibration_session import (
-    CalibrationMethod,
     CalibrationSequence,
 )
 from projectionai.infrastructure.projector_calibration.sync import (

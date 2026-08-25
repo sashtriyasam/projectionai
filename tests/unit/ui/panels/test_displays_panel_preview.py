@@ -12,7 +12,6 @@ from __future__ import annotations
 import os
 from typing import Any
 
-import pytest
 from PySide6.QtWidgets import QApplication
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -20,14 +19,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from projectionai.hardware.models import DisplayInfo
 from projectionai.ui.panels.displays_panel import DisplaysPanel
 
-
-@pytest.fixture(scope="module")
-def qapp() -> QApplication:
-    """Return the process-wide QApplication (created once)."""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    return app
+# qapp provided by pytest-qt (function-scoped) - custom module fixture removed to avoid leak
 
 
 class _Session:

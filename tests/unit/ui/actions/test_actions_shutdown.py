@@ -13,7 +13,6 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
-import pytest
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QApplication
@@ -28,14 +27,7 @@ from projectionai.ui.actions.actions import Actions
 from projectionai.ui.main_window import MainWindow
 from projectionai.ui.viewmodels.output import OutputViewModel
 
-
-@pytest.fixture(scope="module")
-def qapp() -> QApplication:
-    """Return the process-wide QApplication (created once)."""
-    app = QApplication.instance()
-    if isinstance(app, QApplication):
-        return app
-    return QApplication([])
+# qapp provided by pytest-qt (function-scoped) - custom module fixture removed to avoid leak
 
 
 class _EditorControllerStub:

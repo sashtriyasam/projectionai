@@ -346,7 +346,6 @@ class TestHomographyCrossCheck:
         # Use TRANSFORMS homography: need surface→world etc.
         # Simplify: use mesh's projector UVs as ground truth, compare homography prediction
         # For planar surface, homography should match dense per-vertex projection within tolerance
-        from projectionai.domain.transforms import Transform
 
         # Build transforms from calibration
         surf_to_world = (

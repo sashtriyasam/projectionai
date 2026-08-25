@@ -6,23 +6,23 @@ import pytest
 
 from projectionai.calibration.types import Mat4x4
 from projectionai.domain.coordinates import (
-    UVConvention,
     CoordinateSpace,
-    projector_uv_to_pixel,
+    UVConvention,
     projector_pixel_to_uv,
-    surface_uv_to_projector_uv,
+    projector_uv_to_pixel,
     projector_uv_to_surface_uv,
+    surface_uv_to_projector_uv,
 )
-from projectionai.domain.geometry import Mesh, Vec3
+from projectionai.domain.geometry import Mesh
 from projectionai.domain.surface import (
-    SurfaceType,
-    PhysicalSurface,
-    DetectedSurface,
     ConfiguredSurface,
-    SurfaceMeshRef,
+    DetectedSurface,
+    PhysicalSurface,
     SurfaceDetectionResult,
-    create_planar_surface,
+    SurfaceMeshRef,
+    SurfaceType,
     create_cylindrical_surface,
+    create_planar_surface,
     create_spherical_surface,
 )
 
@@ -325,12 +325,12 @@ class TestCoordinateSpaceConstants:
 
     def test_constants_exist(self) -> None:
         from projectionai.domain.coordinates import (
-            SURFACE_LOCAL_TO_WORLD,
-            WORLD_TO_CAMERA,
-            WORLD_TO_PROJECTOR,
             CAMERA_TO_PROJECTOR_PIXEL,
             PROJECTOR_UV_TO_PROJECTOR_PIXEL,
+            SURFACE_LOCAL_TO_WORLD,
             SURFACE_UV_TO_PROJECTOR_UV,
+            WORLD_TO_CAMERA,
+            WORLD_TO_PROJECTOR,
         )
 
         assert SURFACE_LOCAL_TO_WORLD == "surface_local → world"

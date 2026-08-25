@@ -12,20 +12,15 @@ import pytest
 from projectionai.domain.projection import BlendConfig, CropRegion
 from projectionai.domain.warp_mesh import (
     WarpMesh,
-    WarpMeshGeneration,
     create_identity_warp_mesh,
     create_planar_grid_warp_mesh,
 )
 from projectionai.services.warp_engine_cpu import (
     CpuWarpEngine,
     ProjectionWarpEngine,
-    _apply_blend,
-    _apply_crop,
-    _apply_mask,
     _bilinear_sample,
     measure_warp_performance,
 )
-
 
 # =============================================================================
 # Helper: create a simple RGB test image
@@ -58,7 +53,6 @@ def _make_test_image(w: int, h: int, pattern: str = "gradient") -> NDArray[np.ui
 
 
 from numpy.typing import NDArray
-
 
 # =============================================================================
 # ProjectionWarpEngine ABC

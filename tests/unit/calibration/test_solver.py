@@ -7,10 +7,8 @@ import pytest
 
 from projectionai.calibration.solver import (
     CalibrationSolveError,
-    JointIntrinsicsResult,
     solve_calibration,
     solve_joint_intrinsics,
-    solve_per_plane_poses,
 )
 from projectionai.domain.calibration_session import ReconstructionResult
 

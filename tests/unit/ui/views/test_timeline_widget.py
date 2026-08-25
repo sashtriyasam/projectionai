@@ -25,14 +25,7 @@ from projectionai.ui.views.timeline_widget import (
     TimelineWidget,
 )
 
-
-@pytest.fixture(scope="module")
-def qapp() -> QApplication:
-    """Return the process-wide QApplication (created once)."""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    return app
+# qapp provided by pytest-qt (function-scoped) - custom module fixture removed to avoid leak
 
 
 @pytest.fixture

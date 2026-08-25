@@ -169,7 +169,7 @@ class _FakeEngine(ProjectionWarpEngine):
     def warp(
         self,
         source: np.ndarray,
-        warp_mesh: "WarpMesh",
+        warp_mesh: WarpMesh,
         output_width: int,
         output_height: int,
         blend: BlendConfig | None = None,

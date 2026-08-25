@@ -25,14 +25,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import projectionai.ui.dialogs.error_dialog as error_dialog
 
-
-@pytest.fixture(scope="module")
-def qapp() -> QApplication:
-    """Return the process-wide QApplication (created once)."""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    return app
+# qapp provided by pytest-qt (function-scoped) - custom module fixture removed to avoid leak
 
 
 def _noop_qt_handler(_msg_type: object, _context: object, _message: str) -> None:

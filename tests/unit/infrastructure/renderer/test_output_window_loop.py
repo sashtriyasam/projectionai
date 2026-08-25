@@ -5,53 +5,40 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtWidgets import QApplication
-
 from projectionai.infrastructure.renderer.output_window import GLOutputWindow
 
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
+# Use pytest-qt's function-scoped qapp fixture for deterministic teardown
+# (custom module-scoped fixture removed to avoid QApplication lifetime leak)
 
 
 def test_idle_no_continuous_repaint(qapp, monkeypatch):
     w = GLOutputWindow()
-    # Mock update to count calls
-    mock_update = MagicMock()
-    monkeypatch.setattr(w, "update", mock_update)
-    # Simulate paintGL when idle (no content change, not in hardware test)
-    # Production paintGL should not call update
-    w._gl_ready = True  # fake ready to enter paint path
-    # Need to mock context to avoid _clear_black
-    w._ctx = MagicMock()
-    w._target = MagicMock()
-    w.defaultFramebufferObject = MagicMock(return_value=0)  # type: ignore[method-assign]
-    w.paintGL()
-    # Production must not busy-loop
-    mock_update.assert_not_called()
+    try:
+        mock_update = MagicMock()
+        monkeypatch.setattr(w, "update", mock_update)
+        w._gl_ready = True  # fake ready to enter paint path
+        w._ctx = MagicMock()
+        w._target = MagicMock()
+        w.defaultFramebufferObject = MagicMock(return_value=0)  # type: ignore[method-assign]
+        w.paintGL()
+        mock_update.assert_not_called()
+    finally:
+        w.close()
+        w.deleteLater()
+        qapp.processEvents()
 
 
 def test_hardware_harness_continuous_when_active(qapp, monkeypatch):
-    # Simulate MeasuredGLOutputWindow behavior: active -> calls update
     from pathlib import Path
-    import importlib.util, sys
 
-    # Load harness file quickly
-    spec = importlib.util.spec_from_file_location(
-        "phase69",
-        str(
-            Path("C:/Users/Shivam/AppData/Local/Temp/opencode/phase69_hw_validation.py")
-        ),
+    harness_path = Path(
+        "C:/Users/Shivam/AppData/Local/Temp/opencode/phase69_hw_validation.py"
     )
-    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-    # Don't execute full harness, just check class exists and has loop guard
+    if not harness_path.exists():
+        pytest.skip("harness file not present - hardware validation temp not available")
     import ast
 
-    src = Path(
-        "C:/Users/Shivam/AppData/Local/Temp/opencode/phase69_hw_validation.py"
-    ).read_text()
+    src = harness_path.read_text()
     tree = ast.parse(src)
     # Find MeasuredGLOutputWindow paintGL
     found_update_guard = False
@@ -66,10 +53,12 @@ def test_hardware_harness_continuous_when_active(qapp, monkeypatch):
 
 
 def test_shutdown_stops_loop(qapp):
-    # Verify GLOutputWindow close does not trigger update loop
     w = GLOutputWindow()
-    w.show()
-    qapp.processEvents()
-    w.close()
-    # No exception, loop stopped (window hidden)
-    assert not w.isVisible()
+    try:
+        w.show()
+        qapp.processEvents()
+        w.close()
+        assert not w.isVisible()
+    finally:
+        w.deleteLater()
+        qapp.processEvents()

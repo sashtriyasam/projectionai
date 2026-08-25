@@ -13,7 +13,6 @@ import os
 from typing import Any
 
 import numpy as np
-import pytest
 from PySide6.QtWidgets import QApplication
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -21,14 +20,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from projectionai.services.camera import CameraInfo, Frame
 from projectionai.ui.panels.camera_panel import CameraPanel
 
-
-@pytest.fixture(scope="module")
-def qapp() -> QApplication:
-    """Return the process-wide QApplication (created once)."""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    return app
+# qapp provided by pytest-qt (function-scoped) - custom module fixture removed to avoid leak
 
 
 def _camera(camera_id: str, name: str) -> CameraInfo:

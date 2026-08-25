@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 
-import pytest
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QAction, QKeyEvent
 from PySide6.QtWidgets import QApplication, QDialog
@@ -19,14 +18,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from projectionai.ui.actions.command_palette import CommandPaletteDialog
 
-
-@pytest.fixture(scope="module")
-def qapp() -> QApplication:
-    """Return the process-wide QApplication (created once)."""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    return app
+# qapp provided by pytest-qt (function-scoped) - custom module fixture removed to avoid leak
 
 
 def _key(key: Qt.Key) -> QKeyEvent:

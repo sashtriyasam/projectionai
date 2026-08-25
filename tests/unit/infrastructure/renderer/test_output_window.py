@@ -29,14 +29,7 @@ from projectionai.infrastructure.renderer.passes.pattern import PatternPass
 from projectionai.infrastructure.renderer.passes.projection import ProjectionPass
 from projectionai.infrastructure.renderer.texture import Texture
 
-
-@pytest.fixture(scope="session")
-def qapp() -> QApplication:
-    """Return the process-wide QApplication (created once)."""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    return app  # type: ignore[return-value]
+# qapp provided by pytest-qt (function-scoped) - custom session fixture removed
 
 
 @pytest.fixture

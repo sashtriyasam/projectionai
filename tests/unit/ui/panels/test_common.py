@@ -11,19 +11,11 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import pytest
 from PySide6.QtWidgets import QApplication, QToolButton, QWidget
 
 from projectionai.ui.panels.common import make_section_header
 
-
-@pytest.fixture(scope="module")
-def qapp() -> QApplication:
-    """Return the process-wide QApplication (created once)."""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    return app
+# qapp provided by pytest-qt (function-scoped) - custom module fixture removed to avoid leak
 
 
 def _action_buttons(header: QWidget) -> list[QToolButton]:

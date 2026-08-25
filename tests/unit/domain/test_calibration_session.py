@@ -693,13 +693,13 @@ class TestSerialization:
     def test_legacy_types_conversion(self) -> None:
         from projectionai.calibration.types import (
             CalibrationData,
-            CalibrationMethod as LegacyMethod,
-        )
-        from projectionai.calibration.types import CalibrationResult as LegacyResult
-        from projectionai.calibration.types import (
             calibration_result_to_canonical,
             canonical_to_legacy_result,
         )
+        from projectionai.calibration.types import (
+            CalibrationMethod as LegacyMethod,
+        )
+        from projectionai.calibration.types import CalibrationResult as LegacyResult
 
         data = CalibrationData(
             projector_pose={
