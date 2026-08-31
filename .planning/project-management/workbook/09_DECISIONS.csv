@@ -1,0 +1,7 @@
+Decision ID,Date,Phase,Decision,Context,Options Considered,Selected Option,Why,Evidence,Rejected Options,Revisit Trigger,Status
+D-01,2026-08-22,6.1,GrayCode primary (not phase-shift),Structured-light choice,"Phase-shift, GrayCode",GrayCode,"Bit-exact verified, hardware simpler",6.1 REPORT,Phase-shift,Hardware shows phase-shift better,APPROVED
+D-02,2026-08-23,6.7,NumPy/OpenCV joint Zhang solver (no Ceres),Calibration solver,"Ceres, NumPy",NumPy,"<2% fx/fy, 21 tests",test_solver 21 pass,Ceres,Edge-RMS >2px,APPROVED
+D-03,2026-08-23,5.7/6.6,C++ native only where measured useful (<1ms not worth),Recon performance,"C++ always, C++ never",Measured-only,"1.01x e2e, decode dominates","5.10 bench 92-114x, 6.6 1.01x",C++ always,Decode not bottleneck,APPROVED
+D-04,2026-08-23,6.9,ModernGL ProjectionPass production path (no Vulkan/CUDA/Rust),GPU path,"Vulkan,CUDA,Rust",ModernGL,"draw <0.05ms, sufficient",HARDWARE-VALIDATION.md,Vulkan/CUDA,Scale insufficient,APPROVED
+D-05,2026-08-23,6.10,Hardware gates explicitly HARDWARE_PENDING,Physical validation,"Pass monitor as prod, Keep pending",Keep pending,"LG TV = monitor, require_projector=True",HARDWARE-DEFERRED.md,Pass monitor,Real projector evidence,APPROVED
+D-06,2026-08-23,6.11,Replay must never fabricate calibration evidence,Replay integrity,"Synthetic fallback, Fail",Fail,No manufactured evidence,replay v2,Synthetic fallback,Hardware proves otherwise,APPROVED

@@ -1,0 +1,5 @@
+Commit,Branch,CI Run,Build,Lint,Type,Tests,Coverage,Secret Scan,Release Draft,CodeRabbit,Status,Notes
+e98fa23,main,32886323109,PASS,PASS,PASS,PASS,PASS >=60,PASS,PASS,PASS,GREEN,"Qt lifecycle fix, 34 tests"
+a6e44bc,main,32857171476,PASS,PASS,PASS,CANCELLED,-,PASS,PASS,-,FIXED,native optional (was build failure 0191276)
+0191276,main,32849333500,FAIL,PASS,PASS,-,-,PASS,FAIL,-,FIXED,setup.py absolute path
+18fd32f,main,32637417,PASS,PASS,PASS,PASS,62.14%,PASS,PASS,-,GREEN,Phase 5 CI fix

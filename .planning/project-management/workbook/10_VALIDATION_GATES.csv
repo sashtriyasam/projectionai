@@ -1,0 +1,9 @@
+Gate ID,Phase,Gate,Type,Status,Requirement,Evidence,Measured Result,Pass Criteria,Failure Criteria,Date Tested,Environment,Owner,Next Action
+H-01,6.10,Optical closure WHITE-BLACK >5%,HARDWARE,HARDWARE_PENDING,>5% pixels >20,.planning/phases/6.10-calibration/OPTICAL-CLOSURE-REPORT.md,0.00% (camera not aimed),>5% coherent rectangle,0% or not coherent,2026-08-23,"MSMF 640x480, LG TV 1280x720",Team,"Tripod aim, fixed exposure, re-run diff"
+H-02,6.9,Real vsync/frameSwapped timing,HARDWARE,HARDWARE_PENDING,vsync 60Hz,HARDWARE-VALIDATION.md,40.3 FPS monitor-target,60 FPS p50<16.67ms,dropped >0%,2026-08-23,"Intel UHD, QOpenGLWidget",Team,Re-test on projector with frameSwapped
+H-03,6.10,Settle-time production choice,HARDWARE,HARDWARE_PENDING,choose 0/5/10/16/20ms,PHYSICAL-CALIBRATION-REPORT.md,20ms safe default,3x seq coverage+ RMS,Retries/mismatches,2026-08-23,Sync warmup 1,Team,Sweep 0/5/10/16/20 x3 with warmup+sentinel
+H-04,6.10,Camera backend BUFFERSIZE policy,HARDWARE,HARDWARE_PENDING,default vs 1,CAPTURE-ROBUSTNESS-REPORT.md,1650ms vs 364ms first-frame,"no stale, no latency",stale or high latency,2026-08-23,MSMF,Team,A/B on real optical path
+H-05,6.10,Real sentinel coverage,HARDWARE,HARDWARE_PENDING,white sentinel FVR 0%,HARDWARE-DEFERRED.md,synthetic FVR 100%->0% only,FVR 0% on LG TV,FVR >0,2026-08-23,Synthetic,Team,White sentinel +1 on real surface
+H-06,6.10,Real 2-plane calibration >=15 deg,HARDWARE,HARDWARE_PENDING,joint Zhang 2 planes,solver REPORT,synthetic <2% only,RMS<=2px coverage>=0.5,RMS>2 or coverage<0.5,TBD,TBD,Team,Two distinct surface orientations
+H-07,6.10,3x repeatability,HARDWARE,HARDWARE_PENDING,mean/std/max fx/fy/pose,TBD,TBD,std<1%,std>=1%,TBD,TBD,Team,3 complete calibrations
+G-08,6.12,CI Test xvfb-run --cov completes,SOFTWARE,PASS,no 17% hang,CI 32886323109,"success, 1640 runnable","collect 1640, coverage>=60",hang or fail,2026-08-25,"Ubuntu xvfb, QT_QPA_PLATFORM=offscreen",Team,None - baseline green

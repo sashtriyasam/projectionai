@@ -1,0 +1,28 @@
+[ WARN:0@0.071] global cap_ffmpeg_impl.hpp:1246 open VIDEOIO/FFMPEG: OpenCV should be configured with libavdevice to open a camera device
+[ERROR:0@13.785] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+[ERROR:0@13.912] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+[ERROR:0@14.021] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+[ERROR:0@14.131] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+[ERROR:0@14.253] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+[ERROR:0@14.399] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+FINAL LIVE DEMO: leaving visible output on the LG TV
+Target: qt-serial-16843009 (LG TV SSCR2)
+Switch is_ok=True, state=live
+GL Ready: True, FBO id: 1
+  baseline (no pattern): grab=3840x2160 center=(0, 0, 0) distinct_colors=1 max_channel=0
+  -> baseline non-black: False
+Showing: WHITE
+  WHITE: grab=3840x2160 center=(255, 255, 255) distinct_colors=1 max_channel=255
+Showing: CHECKERBOARD
+  CHECKERBOARD: grab=3840x2160 center=(96, 96, 96) distinct_colors=2 max_channel=160
+Showing: COLOUR_BARS
+  COLOUR_BARS: grab=3840x2160 center=(170, 85, 170) distinct_colors=5 max_channel=255
+Showing: COLOUR_BARS (LEAVING ON TV)
+  FINAL (left on TV): grab=3840x2160 center=(170, 85, 170) distinct_colors=5 max_channel=255
+
+Pixel checks: WHITE=OK, CHECKERBOARD=OK, COLOUR_BARS=OK, FINAL_COLOUR_BARS=OK
+RESULT: ALL VISIBLE - COLOUR BARS LEFT ON TV
+
+>>> The TV is now showing colour bars. Confirm you can see them. <<<
+Keeping output live for 120s (ctrl+C to end sooner)...
+Session ended.

@@ -30,12 +30,16 @@ def test_idle_no_continuous_repaint(qapp, monkeypatch):
 
 def test_hardware_harness_continuous_when_active(qapp, monkeypatch):
     from pathlib import Path
+    import os
 
-    harness_path = Path(
-        "C:/Users/Shivam/AppData/Local/Temp/opencode/phase69_hw_validation.py"
-    )
+    harness_path_str = os.environ.get("PHASE69_HW_HARNESS_PATH")
+    if not harness_path_str:
+        pytest.skip(
+            "PHASE69_HW_HARNESS_PATH not set - hardware validation harness not available"
+        )
+    harness_path = Path(harness_path_str)
     if not harness_path.exists():
-        pytest.skip("harness file not present - hardware validation temp not available")
+        pytest.skip("harness file not present at PHASE69_HW_HARNESS_PATH")
     import ast
 
     src = harness_path.read_text()

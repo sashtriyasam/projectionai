@@ -1,0 +1,9 @@
+ID,Item,Evidence required,Trigger for promotion,Status,Phase
+B-01,optional CUDA phase-shift backend,measured CPU/GPU phase-shift bottleneck,decode > capture budget,BACKLOG,Future
+B-02,Vulkan backend,ModernGL insufficient at scale,Scale insufficient,BACKLOG,Future
+B-03,Rust native capture layer,OpenCV capture bottleneck,Capture bottleneck,BACKLOG,Future
+B-04,full distortion calibration,edge-RMS >2px hardware,Edge RMS >2px,BACKLOG,Future
+B-05,bundle adjustment,multi-plane residual,Multi-plane residual,BACKLOG,Future
+B-06,multi-projector calibration,Phase 7 single-projector shipped,Single shipped,BACKLOG,Future
+B-07,non-planar reconstruction,curved surface requirement,Curved surface,BACKLOG,Future
+B-08,advanced zero-copy camera path,capture-latency hardware,Capture latency,BACKLOG,Future

@@ -95,10 +95,19 @@ from projectionai.calibration.hardware_validation import (
     report_to_dict,
 )
 from projectionai.calibration.history import CalibrationHistory, HistoryEntry
+from projectionai.calibration.history_store import CalibrationHistoryStore
 from projectionai.calibration.importer import (
     CalibrationImporter,
     ImporterRegistry,
     RawJsonImporter,
+)
+from projectionai.calibration.persistence import (
+    CalibrationPersistence,
+    CalibrationPersistenceBundle,
+    CompatibilityError,
+    IntegrityError,
+    PersistenceError,
+    SchemaVersionError,
 )
 from projectionai.calibration.pipeline import (
     CalibrationPipeline,
@@ -113,6 +122,10 @@ from projectionai.calibration.projector_model import (
     ProjectorLens,
     ProjectorModel,
     ProjectorPose,
+)
+from projectionai.calibration.recall import (
+    CalibrationRecall,
+    RecallResult,
 )
 from projectionai.calibration.session import CalibrationSession
 from projectionai.calibration.surface_model import (
@@ -131,6 +144,14 @@ from projectionai.calibration.types import (
     ProjectionType,
     WarpMode,
 )
+from projectionai.calibration.validation_gate import (
+    AuthorizationLevel,
+    GateId,
+    GateResult,
+    GateStatus,
+    ValidationGate,
+    ValidationGateResult,
+)
 from projectionai.calibration.validator import (
     CalibrationCheck,
     CalibrationValidator,
@@ -139,23 +160,20 @@ from projectionai.calibration.validator import (
 from projectionai.calibration.workspace import CalibrationWorkspace
 
 __all__ = [
-    # Camera calibration stages
     "BoardDetectionStage",
-    # Quality
     "CalibrationCheck",
-    # Types
     "CalibrationData",
-    # Export / Import
     "CalibrationExporter",
-    # Workspace & session
     "CalibrationHistory",
+    "CalibrationHistoryStore",
     "CalibrationImporter",
-    # Manager
     "CalibrationManager",
     "CalibrationMethod",
-    # Pipeline
+    "CalibrationPersistence",
+    "CalibrationPersistenceBundle",
     "CalibrationPipeline",
     "CalibrationProfile",
+    "CalibrationRecall",
     "CalibrationReport",
     "CalibrationResult",
     "CalibrationSession",
@@ -163,7 +181,6 @@ __all__ = [
     "CalibrationStageType",
     "CalibrationState",
     "CalibrationStatus",
-    # Models
     "CalibrationTarget",
     "CalibrationValidator",
     "CalibrationWorkspace",
@@ -173,15 +190,18 @@ __all__ = [
     "CameraModel",
     "CameraPose",
     "CaptureSequence",
+    "CompatibilityError",
     "EnvironmentInfo",
     "ExporterRegistry",
     "HardwareValidationError",
     "HardwareValidationSession",
     "HistoryEntry",
     "ImporterRegistry",
+    "IntegrityError",
     "IntrinsicsCalibrationStage",
     "LensType",
     "OpenCvExporter",
+    "PersistenceError",
     "ProjectionMappingExporter",
     "ProjectionType",
     "ProjectorExtrinsics",
@@ -191,6 +211,8 @@ __all__ = [
     "ProjectorPose",
     "RawJsonExporter",
     "RawJsonImporter",
+    "RecallResult",
+    "SchemaVersionError",
     "StageContext",
     "StageError",
     "SurfaceModel",

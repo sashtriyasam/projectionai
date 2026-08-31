@@ -1,0 +1,5 @@
+Milestone ID,Name,Phase,Description,Planned date,Actual date,Status,Dependencies,Acceptance criteria,Evidence
+M-P5,Phase 5 projection engine complete,Phase 5,"234 tests, ModernGL path",2026-06-01,2026-08-22,DONE,,All 5.x reports,.planning/phases/5.11-sign-off/REPORT.md
+M-6.9,Phase 6 GPU software + hardware validation,Phase 6.9,"Software OK, HW conditional",2026-08-23,2026-08-23,CONDITIONAL,,HARDWARE-VALIDATION.md,.planning/phases/6.9-gpu-production-integration/HARDWARE-VALIDATION.md
+M-6.12,Phase 6 software baseline + CI green,Phase 6.12,"e98fa23, 1640 tests, CI GREEN",2026-08-25,2026-08-25,DONE,,CI 32886323109 success,.planning/phases/6.12-sign-off/PHASE-6-GIT-CHECKPOINT.md
+M-7.0,Phase 7 production workflow,Phase 7,Operator workflow shipped,TBD,TBD,NOT_STARTED,,7.16 sign-off,TBD

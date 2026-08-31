@@ -1,0 +1,638 @@
+{
+  "project": "PROJECTIONAI",
+  "spreadsheet_id": "1D0_mVe1UPQgkUsYBboAGOQVVIKK3WUpVX9qG1Sv7Qas",
+  "generated_at": "2026-08-25",
+  "baseline": {
+    "current_phase": "6.12 (sign-off) — Phase 7 READY TO START",
+    "latest_commit": "e98fa23 fix(tests): isolate Qt application lifecycle",
+    "ci_status": "GREEN",
+    "hardware": "HARDWARE_PENDING",
+    "phase_6_software_baseline": "COMPLETE"
+  },
+  "tabs": [
+    "00_EXECUTIVE_DASHBOARD",
+    "01_MASTER_PLAN",
+    "02_GANTT",
+    "03_KANBAN",
+    "04_BURNDOWN",
+    "05_CUMULATIVE_FLOW",
+    "06_MILESTONES",
+    "07_DEPENDENCIES",
+    "08_RISKS_BLOCKERS",
+    "09_DECISIONS",
+    "10_VALIDATION_GATES",
+    "11_RELEASES_CI",
+    "12_CHANGELOG",
+    "13_METRICS",
+    "14_PHASE_DETAIL",
+    "15_BACKLOG",
+    "16_STATUS_HISTORY"
+  ],
+  "master_plan": [
+    {
+      "id": "5.1",
+      "phase": "Phase 5",
+      "subphase": "Projection engine",
+      "task": "Projection domain + warp pipeline",
+      "status": "DONE",
+      "priority": "HIGH",
+      "effort": null,
+      "percent": 100,
+      "commit": "2049cec"
+    },
+    {
+      "id": "5.5",
+      "phase": "Phase 5",
+      "subphase": "Warp pipeline",
+      "task": "CPU warp engine reference",
+      "status": "DONE",
+      "priority": "HIGH",
+      "effort": null,
+      "percent": 100
+    },
+    {
+      "id": "5.6",
+      "phase": "Phase 5",
+      "subphase": "Renderer integration",
+      "task": "ModernGL ProjectionPass + output window",
+      "status": "DONE",
+      "priority": "HIGH",
+      "percent": 100
+    },
+    {
+      "id": "5.7",
+      "phase": "Phase 5",
+      "subphase": "Native engine",
+      "task": "C++ pybind11 warp engine",
+      "status": "DONE",
+      "priority": "MEDIUM",
+      "percent": 100
+    },
+    {
+      "id": "5.8",
+      "phase": "Phase 5",
+      "subphase": "Integration",
+      "task": "WarpEngineFactory (AUTO/CPU/NATIVE)",
+      "status": "DONE",
+      "priority": "HIGH",
+      "percent": 100
+    },
+    {
+      "id": "5.9",
+      "phase": "Phase 5",
+      "subphase": "Production integration",
+      "task": "AppConfig + bootstrap + integration tests",
+      "status": "DONE",
+      "priority": "HIGH",
+      "percent": 100
+    },
+    {
+      "id": "5.10",
+      "phase": "Phase 5",
+      "subphase": "Performance",
+      "task": "CPU vs C++ benchmark + calibration bridge",
+      "status": "DONE",
+      "priority": "MEDIUM",
+      "percent": 100
+    },
+    {
+      "id": "5.11",
+      "phase": "Phase 5",
+      "subphase": "Sign-off",
+      "task": "Engineering sign-off + closure validation",
+      "status": "DONE",
+      "priority": "HIGH",
+      "percent": 100
+    },
+    {
+      "id": "6.1",
+      "phase": "Phase 6",
+      "subphase": "Architecture",
+      "task": "Calibration reconstruction architecture (foundation)",
+      "status": "DONE",
+      "priority": "CRITICAL",
+      "percent": 100
+    },
+    {
+      "id": "6.2",
+      "phase": "Phase 6",
+      "subphase": "Calibration session",
+      "task": "Canonical CalibrationResult + session lifecycle",
+      "status": "DONE",
+      "priority": "CRITICAL",
+      "percent": 100,
+      "commit": "13d4bc2.."
+    },
+    {
+      "id": "6.3",
+      "phase": "Phase 6",
+      "subphase": "Pattern engine",
+      "task": "Gray-code pattern engine (deterministic, LRU cache)",
+      "status": "DONE",
+      "priority": "HIGH",
+      "percent": 100
+    },
+    {
+      "id": "6.4",
+      "phase": "Phase 6",
+      "subphase": "Capture sync",
+      "task": "SynchronizedCaptureSession + vsync barrier",
+      "status": "DONE",
+      "priority": "HIGH",
+      "percent": 100
+    },
+    {
+      "id": "6.5",
+      "phase": "Phase 6",
+      "subphase": "Structured light",
+      "task": "CorrespondenceMatcher + lit mask decode",
+      "status": "DONE",
+      "priority": "HIGH",
+      "percent": 100
+    },
+    {
+      "id": "6.6",
+      "phase": "Phase 6",
+      "subphase": "Reconstruction",
+      "task": "Reference/Native triangulation backends",
+      "status": "DONE",
+      "priority": "HIGH",
+      "percent": 100
+    },
+    {
+      "id": "6.7",
+      "phase": "Phase 6",
+      "subphase": "Solver",
+      "task": "Joint Zhang + per-plane solvePnP, diversity guard",
+      "status": "DONE",
+      "priority": "HIGH",
+      "percent": 100
+    },
+    {
+      "id": "6.8",
+      "phase": "Phase 6",
+      "subphase": "Calibration→WarpMesh",
+      "task": "calibration_to_warp_mesh canonical+legacy",
+      "status": "DONE",
+      "priority": "HIGH",
+      "percent": 100
+    },
+    {
+      "id": "6.9",
+      "phase": "Phase 6",
+      "subphase": "GPU production",
+      "task": "GLOutputWindow + ProjectionPass hardware validation",
+      "status": "CONDITIONAL",
+      "priority": "HIGH",
+      "percent": 90,
+      "hardware": "LG TV monitor-target override only"
+    },
+    {
+      "id": "6.10",
+      "phase": "Phase 6",
+      "subphase": "Physical calibration",
+      "task": "Hardware deferral + optical closure",
+      "status": "HARDWARE_PENDING",
+      "priority": "HIGH",
+      "percent": 60
+    },
+    {
+      "id": "6.11",
+      "phase": "Phase 6",
+      "subphase": "Replay",
+      "task": "Deterministic replay (no synthetic fallback)",
+      "status": "DONE",
+      "priority": "MEDIUM",
+      "percent": 100
+    },
+    {
+      "id": "6.12",
+      "phase": "Phase 6",
+      "subphase": "Sign-off",
+      "task": "CodeRabbit revalidation + git checkpoint + CI Qt fix",
+      "status": "DONE",
+      "priority": "CRITICAL",
+      "percent": 100,
+      "commit": "e98fa23"
+    },
+    {
+      "id": "7.1",
+      "phase": "Phase 7",
+      "subphase": "Workflow orchestration",
+      "task": "Calibration workflow orchestration",
+      "status": "BACKLOG",
+      "priority": "HIGH",
+      "percent": 0,
+      "planned_start": "TBD",
+      "planned_end": "TBD"
+    },
+    {
+      "id": "7.2",
+      "phase": "Phase 7",
+      "subphase": "Selection UX",
+      "task": "Camera/projector selection UX",
+      "status": "BACKLOG",
+      "priority": "HIGH",
+      "percent": 0
+    },
+    {
+      "id": "7.3",
+      "phase": "Phase 7",
+      "subphase": "Surface setup",
+      "task": "Surface setup workflow",
+      "status": "BACKLOG",
+      "priority": "HIGH",
+      "percent": 0
+    },
+    {
+      "id": "7.4",
+      "phase": "Phase 7",
+      "subphase": "Progress UI",
+      "task": "Calibration progress UI",
+      "status": "BACKLOG",
+      "priority": "MEDIUM",
+      "percent": 0
+    },
+    {
+      "id": "7.5",
+      "phase": "Phase 7",
+      "subphase": "Pattern presentation",
+      "task": "Pattern presentation integration",
+      "status": "BACKLOG",
+      "priority": "HIGH",
+      "percent": 0
+    },
+    {
+      "id": "7.6",
+      "phase": "Phase 7",
+      "subphase": "Capture recovery",
+      "task": "Capture state / recovery",
+      "status": "BACKLOG",
+      "priority": "MEDIUM",
+      "percent": 0
+    },
+    {
+      "id": "7.7",
+      "phase": "Phase 7",
+      "subphase": "Pipeline progress",
+      "task": "Decode/reconstruction/solve progress",
+      "status": "BACKLOG",
+      "priority": "MEDIUM",
+      "percent": 0
+    },
+    {
+      "id": "7.8",
+      "phase": "Phase 7",
+      "subphase": "Result review",
+      "task": "Calibration result review",
+      "status": "BACKLOG",
+      "priority": "MEDIUM",
+      "percent": 0
+    },
+    {
+      "id": "7.9",
+      "phase": "Phase 7",
+      "subphase": "Warp preview",
+      "task": "Warp preview",
+      "status": "BACKLOG",
+      "priority": "HIGH",
+      "percent": 0
+    },
+    {
+      "id": "7.10",
+      "phase": "Phase 7",
+      "subphase": "Persistence",
+      "task": "Calibration persistence / recall",
+      "status": "BACKLOG",
+      "priority": "HIGH",
+      "percent": 0
+    },
+    {
+      "id": "7.11",
+      "phase": "Phase 7",
+      "subphase": "Safety workflow",
+      "task": "Validation & safety workflow",
+      "status": "BACKLOG",
+      "priority": "CRITICAL",
+      "percent": 0
+    },
+    {
+      "id": "7.12",
+      "phase": "Phase 7",
+      "subphase": "Arm/live",
+      "task": "Production arm/live workflow",
+      "status": "BACKLOG",
+      "priority": "CRITICAL",
+      "percent": 0
+    },
+    {
+      "id": "7.13",
+      "phase": "Phase 7",
+      "subphase": "Error recovery",
+      "task": "Error recovery",
+      "status": "BACKLOG",
+      "priority": "MEDIUM",
+      "percent": 0
+    },
+    {
+      "id": "7.14",
+      "phase": "Phase 7",
+      "subphase": "Diagnostics",
+      "task": "User-facing diagnostics",
+      "status": "BACKLOG",
+      "priority": "MEDIUM",
+      "percent": 0
+    },
+    {
+      "id": "7.15",
+      "phase": "Phase 7",
+      "subphase": "Hardware validation",
+      "task": "Hardware validation workflow",
+      "status": "BACKLOG",
+      "priority": "CRITICAL",
+      "percent": 0
+    },
+    {
+      "id": "7.16",
+      "phase": "Phase 7",
+      "subphase": "Sign-off",
+      "task": "Phase 7 sign-off",
+      "status": "BACKLOG",
+      "priority": "HIGH",
+      "percent": 0
+    }
+  ],
+  "milestones": [
+    {
+      "id": "M-P5",
+      "name": "Phase 5 projection engine complete",
+      "phase": "Phase 5",
+      "status": "DONE",
+      "actual": "2026-08-22"
+    },
+    {
+      "id": "M-6.9",
+      "name": "Phase 6 GPU software + hardware validation",
+      "phase": "Phase 6.9",
+      "status": "CONDITIONAL",
+      "actual": "2026-08-23"
+    },
+    {
+      "id": "M-6.12",
+      "name": "Phase 6 software baseline + CI green",
+      "phase": "Phase 6.12",
+      "status": "DONE",
+      "actual": "2026-08-25"
+    },
+    {
+      "id": "M-7.0",
+      "name": "Phase 7 production workflow",
+      "phase": "Phase 7",
+      "status": "NOT_STARTED",
+      "planned": "TBD"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-01",
+      "phase": "6.1",
+      "decision": "GrayCode structured-light primary (not phase-shift)",
+      "evidence": "6.1 REPORT, bit-exact verified"
+    },
+    {
+      "id": "D-02",
+      "phase": "6.7",
+      "decision": "NumPy/OpenCV joint Zhang solver (no Ceres)",
+      "evidence": "test_solver 21 pass, <2% fx/fy"
+    },
+    {
+      "id": "D-03",
+      "phase": "5.7/6.6",
+      "decision": "C++ native only where measured useful (<1ms not worth in decode-dominated pipeline)",
+      "evidence": "5.10 bench 92-114x, 6.6 1.01x e2e"
+    },
+    {
+      "id": "D-04",
+      "phase": "6.9",
+      "decision": "ModernGL ProjectionPass production path (no Vulkan/CUDA/Rust)",
+      "evidence": "HARDWARE-VALIDATION.md, draw <0.05ms"
+    },
+    {
+      "id": "D-05",
+      "phase": "6.10",
+      "decision": "Hardware gates explicitly HARDWARE_PENDING (LG TV = monitor, require_projector=True)",
+      "evidence": "HARDWARE-DEFERRED.md"
+    },
+    {
+      "id": "D-06",
+      "phase": "6.11",
+      "decision": "Replay must never fabricate calibration evidence (no synthetic plane/hardcoded intrinsics)",
+      "evidence": "replay v2, single-plane raises"
+    }
+  ],
+  "validation_gates": [
+    {
+      "id": "H-01",
+      "phase": "6.10",
+      "gate": "Optical closure WHITE-BLACK >5%",
+      "status": "HARDWARE_PENDING",
+      "result": "0.00% (camera not aimed)"
+    },
+    {
+      "id": "H-02",
+      "phase": "6.9",
+      "gate": "Real vsync/frameSwapped timing",
+      "status": "HARDWARE_PENDING",
+      "result": "40.3 FPS monitor-target (vsync not 60Hz)"
+    },
+    {
+      "id": "H-03",
+      "phase": "6.10",
+      "gate": "Settle-time production choice (0/5/10/16/20ms)",
+      "status": "HARDWARE_PENDING"
+    },
+    {
+      "id": "H-04",
+      "phase": "6.10",
+      "gate": "Camera backend BUFFERSIZE policy",
+      "status": "HARDWARE_PENDING",
+      "result": "1650ms vs 364ms first-frame"
+    },
+    {
+      "id": "H-05",
+      "phase": "6.10",
+      "gate": "Real sentinel coverage",
+      "status": "HARDWARE_PENDING",
+      "result": "synthetic FVR 100%→0% only"
+    },
+    {
+      "id": "H-06",
+      "phase": "6.10",
+      "gate": "Real 2-plane calibration ≥15°",
+      "status": "HARDWARE_PENDING"
+    },
+    {
+      "id": "H-07",
+      "phase": "6.10",
+      "gate": "3× repeatability",
+      "status": "HARDWARE_PENDING"
+    },
+    {
+      "id": "G-08",
+      "phase": "6.12",
+      "gate": "CI Test (3.12) xvfb-run --cov completes",
+      "status": "PASS",
+      "result": "success, no 17% hang, coverage≥60"
+    }
+  ],
+  "releases_ci": [
+    {
+      "commit": "e98fa23",
+      "branch": "main",
+      "ci": "32886323109",
+      "build": "PASS",
+      "lint": "PASS",
+      "type": "PASS",
+      "tests": "PASS",
+      "coverage": ">=60",
+      "secret": "PASS",
+      "release": "PASS",
+      "coderabbit": "RESOLVED",
+      "status": "GREEN",
+      "note": "Qt lifecycle fix"
+    },
+    {
+      "commit": "a6e44bc",
+      "branch": "main",
+      "ci": "32857171476",
+      "build": "PASS",
+      "lint": "PASS",
+      "type": "PASS",
+      "tests": "CANCELLED",
+      "coverage": null,
+      "secret": "PASS",
+      "release": "PASS",
+      "status": "FIXED",
+      "note": "native optional (was build failure)"
+    },
+    {
+      "commit": "0191276",
+      "branch": "main",
+      "ci": "32849333500",
+      "build": "FAIL",
+      "lint": "PASS",
+      "type": "PASS",
+      "tests": null,
+      "secret": "PASS",
+      "release": "FAIL",
+      "status": "FIXED",
+      "note": "setup.py absolute path"
+    }
+  ],
+  "risks_blockers": [
+    {
+      "id": "R-01",
+      "type": "Blocker",
+      "description": "LG TV classified monitor → require_projector=True blocks default production validation",
+      "probability": "HIGH",
+      "impact": "HIGH",
+      "status": "OPEN",
+      "mitigation": "revalidate on real projector or accept monitor target"
+    },
+    {
+      "id": "R-02",
+      "type": "Risk",
+      "description": "VSync not enforced on Intel UHD secondary (40 FPS vs 60Hz)",
+      "probability": "HIGH",
+      "impact": "MEDIUM",
+      "status": "OPEN",
+      "mitigation": "documented platform limitation"
+    },
+    {
+      "id": "R-03",
+      "type": "Risk",
+      "description": "Replay slow (~23s/corruption test) may threaten CI budget",
+      "probability": "MEDIUM",
+      "impact": "LOW",
+      "status": "OPEN",
+      "mitigation": "mark @slow or shared fixture"
+    },
+    {
+      "id": "R-04",
+      "type": "Resolved",
+      "description": "Qt lifecycle leak caused CI hang at 17%",
+      "probability": "WAS HIGH",
+      "impact": "HIGH",
+      "status": "CLOSED",
+      "mitigation": "34 test files function-scoped qapp"
+    }
+  ],
+  "backlog": [
+    {
+      "id": "B-01",
+      "item": "optional CUDA phase-shift backend",
+      "evidence_required": "measured CPU/GPU phase-shift bottleneck",
+      "trigger": "decode > capture budget"
+    },
+    {
+      "id": "B-02",
+      "item": "Vulkan backend",
+      "evidence_required": "ModernGL insufficient at scale"
+    },
+    {
+      "id": "B-03",
+      "item": "Rust native capture layer",
+      "evidence_required": "OpenCV capture bottleneck"
+    },
+    {
+      "id": "B-04",
+      "item": "full distortion calibration",
+      "evidence_required": "edge-RMS >2px hardware"
+    },
+    {
+      "id": "B-05",
+      "item": "bundle adjustment",
+      "evidence_required": "multi-plane residual"
+    },
+    {
+      "id": "B-06",
+      "item": "multi-projector calibration",
+      "evidence_required": "Phase 7 single-projector shipped"
+    },
+    {
+      "id": "B-07",
+      "item": "non-planar reconstruction",
+      "evidence_required": "curved surface requirement"
+    },
+    {
+      "id": "B-08",
+      "item": "advanced zero-copy camera path",
+      "evidence_required": "capture-latency hardware"
+    }
+  ],
+  "status_history_seed": [
+    {
+      "timestamp": "2026-08-25",
+      "task_id": "ALL",
+      "phase": "6.12",
+      "old_status": null,
+      "new_status": "DONE",
+      "change_source": "PROJECT-CONTROL-CENTER baseline import",
+      "commit": "e98fa23",
+      "notes": "Baseline / tracking begins on 2026-08-25"
+    }
+  ],
+  "changelog_seed": [
+    {
+      "timestamp": "2026-08-25",
+      "change_id": "CH-001",
+      "phase": "6.12",
+      "change_type": "RELEASE",
+      "description": "Phase 6 software baseline complete; CI green; Qt lifecycle fix committed",
+      "previous": "CI Build failure + Qt hang",
+      "new": "CI GREEN",
+      "commit": "e98fa23"
+    }
+  ],
+  "reconciliation_notes": "MASTER_PLAN total == dashboard/kanban/CFD/burndown/gantt (formula-derived); unrecoverable dates marked TBD/UNKNOWN per instruction."
+}

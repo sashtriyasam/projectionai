@@ -1,0 +1,5 @@
+ID,Type,Description,Probability,Impact,Score,Owner,Mitigation,Contingency,Status,First Seen,Last Updated
+R-01,Blocker,LG TV classified monitor -> require_projector=True blocks default production validation,HIGH,HIGH,9,Team,Revalidate on real projector or accept monitor target,Keep monitor-target conditional,OPEN,2026-08-23,2026-08-25
+R-02,Risk,VSync not enforced on Intel UHD secondary (40 FPS vs 60Hz),HIGH,MEDIUM,6,Team,Documented platform limitation,Re-test on projector,OPEN,2026-08-23,2026-08-25
+R-03,Risk,Replay slow (~23s/corruption test) may threaten CI budget,MEDIUM,LOW,3,Team,Mark @slow or shared fixture,Optimize synthetic generation,OPEN,2026-08-25,2026-08-25
+R-04,Resolved,Qt lifecycle leak caused CI hang at 17%,WAS HIGH,HIGH,9,Team,34 test files function-scoped qapp,None,CLOSED,2026-08-25,2026-08-25

@@ -9,6 +9,7 @@ coordination) subscribe by event type.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from projectionai.core.events import Event
@@ -167,6 +168,77 @@ class OutputUnfrozen(Event):
 
     session_id: str
     restored_state: OutputState
+
+
+@dataclass(frozen=True)
+class OutputDisarmed(Event):
+    """The session was disarmed — returned to preview/IDLE."""
+
+    session_id: str
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class OutputStopped(Event):
+    """Safe stop completed — session returned to IDLE."""
+
+    session_id: str
+    reason: str = ""
+
+
+# ---------------------------------------------------------------------------
+# User-intent events (UI -> hardware)
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Runtime watchdog events (emitted by RuntimeWatchdog)
+# ---------------------------------------------------------------------------
+
+
+class WatchdogTrigger(StrEnum):
+    """Why the watchdog triggered a safe stop.
+
+    CALIBRATION_INVALID is deferred to a future phase — calibration
+    invalidation is handled by OutputManager directly.
+    """
+
+    DISPLAY_DISCONNECTED = "display_disconnected"
+    RESOLUTION_CHANGED = "resolution_changed"
+    GATE_STALE = "gate_stale"
+    GATE_REVOKED = "gate_revoked"
+    RENDERER_UNHEALTHY = "renderer_unhealthy"
+
+
+@dataclass(frozen=True)
+class WatchdogStarted(Event):
+    """Watchdog began monitoring a live session."""
+
+    session_id: str
+
+
+@dataclass(frozen=True)
+class WatchdogStopped(Event):
+    """Watchdog stopped monitoring."""
+
+    session_id: str
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class WatchdogTriggered(Event):
+    """Watchdog detected a safety violation and triggered a safe stop."""
+
+    session_id: str
+    trigger: WatchdogTrigger
+    details: str = ""
+
+
+@dataclass(frozen=True)
+class WatchdogCheckPassed(Event):
+    """All watchdog checks passed for this cycle."""
+
+    session_id: str
 
 
 # ---------------------------------------------------------------------------

@@ -72,7 +72,7 @@ class TestCalibrationSession:
         assert result.quality_score >= 0.0
         assert session.result is result
 
-    async def test_finalize_failure_no_errors(
+    async def test_finalize_succeeds_with_no_errors(
         self, session: CalibrationSession
     ) -> None:
         await session.start()
@@ -160,7 +160,7 @@ class TestCalibrationSession:
         score = session._compute_quality_score()
         assert score == 0.0
 
-    async def test_quality_score_penalised_by_errors(
+    async def test_quality_score_penalised_by_warnings(
         self, session: CalibrationSession
     ) -> None:
         session.state.data = CalibrationData(confidence=1.0, num_samples=5)

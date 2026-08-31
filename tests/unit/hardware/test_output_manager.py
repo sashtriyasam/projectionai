@@ -112,6 +112,16 @@ async def test_end_session_clears_routing(output_manager: object) -> None:
     event_bus = om.event_bus
     assert isinstance(event_bus, FakeEventBus)
     await om.begin_session(preview_display_id="disp-1")
+    # Set calibration context for gate (LIVE source, no hardware pending)
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     await om.go_live()
     await om.end_session()
     await _flush()
@@ -182,6 +192,16 @@ async def test_go_live_auto_routes_to_first_projector(
     event_bus = om.event_bus
     assert isinstance(event_bus, FakeEventBus)
     await om.begin_session()
+    # Set calibration context for gate (LIVE source, no hardware pending)
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     report = await om.go_live()
     await _flush()
     assert report.is_ok
@@ -195,6 +215,15 @@ async def test_go_live_auto_routes_to_first_projector(
 async def test_go_live_uses_explicit_target(output_manager: object) -> None:
     om, _dm, _provider = output_manager  # type: ignore[misc]
     await om.begin_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     await om.set_live_target("disp-2")
     await om.go_live()
     assert om.session is not None
@@ -211,9 +240,20 @@ async def test_go_live_rejects_without_projector(event_bus: FakeEventBus) -> Non
     await om.initialize()
     try:
         await om.begin_session()
+        from projectionai.calibration.validator import (
+            ValidationReport as CalValidationReport,
+        )
+
+        cal = CalValidationReport(passed=True, quality_score=0.9)
+        om.set_calibration_context(
+            calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+        )
+        # Arm with require_projector=False since only monitor is present
+        await om.arm(require_projector=False)
         with pytest.raises(OutputSwitchError):
             await om.go_live()
-        assert om.state is OutputState.IDLE
+        # Safe switching: state remains ARMED after failed go_live
+        assert om.state is OutputState.ARMED
     finally:
         await om.shutdown()
         await dm.shutdown()
@@ -232,6 +272,15 @@ async def test_go_live_allows_monitor_when_require_projector_false(
     await om.initialize()
     try:
         await om.begin_session()
+        from projectionai.calibration.validator import (
+            ValidationReport as CalValidationReport,
+        )
+
+        cal = CalValidationReport(passed=True, quality_score=0.9)
+        om.set_calibration_context(
+            calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+        )
+        await om.arm(require_projector=False)
         await om.set_live_target("mon-1")
         report = await om.go_live(require_projector=False)
         assert report.is_ok
@@ -276,7 +325,8 @@ async def test_arm_default_requires_projector(event_bus: FakeEventBus) -> None:
         await om.begin_session()
         report = await om.arm()  # default require_projector=True
         assert not report.is_ok
-        assert om.state is OutputState.IDLE  # not armed
+        # On failed arm, state rolls back to original (IDLE before PREVIEW)
+        assert om.state is OutputState.IDLE
     finally:
         await om.shutdown()
         await dm.shutdown()
@@ -293,9 +343,18 @@ async def test_go_live_default_requires_projector(event_bus: FakeEventBus) -> No
     await om.initialize()
     try:
         await om.begin_session()
+        from projectionai.calibration.validator import (
+            ValidationReport as CalValidationReport,
+        )
+
+        cal = CalValidationReport(passed=True, quality_score=0.9)
+        om.set_calibration_context(
+            calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+        )
+        await om.arm(require_projector=False)
         with pytest.raises(OutputSwitchError):
             await om.go_live()  # default require_projector=True
-        assert om.state is OutputState.IDLE
+        assert om.state is OutputState.ARMED
     finally:
         await om.shutdown()
         await dm.shutdown()
@@ -315,6 +374,15 @@ async def test_go_live_rejects_when_no_output_window(
     await om.initialize()
     try:
         await om.begin_session()
+        from projectionai.calibration.validator import (
+            ValidationReport as CalValidationReport,
+        )
+
+        cal = CalValidationReport(passed=True, quality_score=0.9)
+        om.set_calibration_context(
+            calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+        )
+        await om.arm()
         with pytest.raises(OutputSwitchError) as exc_info:
             await om.go_live()
         assert not exc_info.value.report.is_ok
@@ -322,7 +390,8 @@ async def test_go_live_rejects_when_no_output_window(
             issue.code == "window_not_available"
             for issue in exc_info.value.report.errors
         )
-        assert om.state is OutputState.IDLE  # unchanged
+        # Safe switching: state remains ARMED after failed go_live
+        assert om.state is OutputState.ARMED
     finally:
         await om.shutdown()
         await dm.shutdown()
@@ -340,9 +409,19 @@ async def test_go_live_rejects_without_projector_when_monitor_only(
     await om.initialize()
     try:
         await om.begin_session()
+        from projectionai.calibration.validator import (
+            ValidationReport as CalValidationReport,
+        )
+
+        cal = CalValidationReport(passed=True, quality_score=0.9)
+        om.set_calibration_context(
+            calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+        )
+        await om.arm(require_projector=False)
         with pytest.raises(OutputSwitchError):
             await om.go_live()
-        assert om.state is OutputState.IDLE
+        # Safe switching: state remains ARMED after failed go_live
+        assert om.state is OutputState.ARMED
     finally:
         await om.shutdown()
         await dm.shutdown()
@@ -356,6 +435,15 @@ async def test_blackout_cuts_live_but_keeps_session(output_manager: object) -> N
     event_bus = om.event_bus
     assert isinstance(event_bus, FakeEventBus)
     await om.begin_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     await om.go_live()
     await om.blackout()
     await _flush()
@@ -375,6 +463,15 @@ async def test_freeze_from_live_holds_route_and_emits(
     event_bus = om.event_bus
     assert isinstance(event_bus, FakeEventBus)
     await om.begin_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     await om.go_live()
     await om.freeze()
     await _flush()
@@ -389,6 +486,15 @@ async def test_freeze_from_live_holds_route_and_emits(
 async def test_freeze_from_blackout(output_manager: object) -> None:
     om, dm, _provider = output_manager  # type: ignore[misc]
     await om.begin_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     await om.go_live()
     await om.blackout()
     await om.freeze()
@@ -420,6 +526,15 @@ async def test_freeze_from_invalid_state_raises(output_manager: object) -> None:
 async def test_double_freeze_raises(output_manager: object) -> None:
     om, _dm, _provider = output_manager  # type: ignore[misc]
     await om.begin_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     await om.go_live()
     await om.freeze()
     with pytest.raises(OutputSessionError, match="Cannot freeze"):
@@ -431,6 +546,15 @@ async def test_unfreeze_restores_live(output_manager: object) -> None:
     event_bus = om.event_bus
     assert isinstance(event_bus, FakeEventBus)
     await om.begin_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     await om.go_live()
     await om.freeze()
     await om.unfreeze()
@@ -448,6 +572,15 @@ async def test_unfreeze_reapplies_route_to_recorded_live_display(
     """Unfreeze reconciles the live route with the recorded target."""
     om, dm, _provider = output_manager  # type: ignore[misc]
     await om.begin_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     await om.go_live()  # auto-routes live to the projector ("disp-2")
     await om.freeze()
     # Route drifts while frozen: unfreeze must re-apply the recorded
@@ -466,6 +599,15 @@ async def test_set_live_target_while_frozen_raises(output_manager: object) -> No
     """A frozen session's live target must not change."""
     om, dm, _provider = output_manager  # type: ignore[misc]
     await om.begin_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     await om.go_live()  # recorded live target = "disp-2" (the projector)
     await om.freeze()
     with pytest.raises(OutputSessionError, match="frozen"):
@@ -483,6 +625,15 @@ async def test_unfreeze_from_blackout_restores_blackout(
 ) -> None:
     om, _dm, _provider = output_manager  # type: ignore[misc]
     await om.begin_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     await om.go_live()
     await om.blackout()
     await om.freeze()
@@ -496,6 +647,15 @@ async def test_unfreeze_from_blackout_restores_blackout(
 async def test_unfreeze_without_freeze_raises(output_manager: object) -> None:
     om, _dm, _provider = output_manager  # type: ignore[misc]
     await om.begin_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     await om.go_live()
     with pytest.raises(OutputSessionError, match="not frozen"):
         await om.unfreeze()
@@ -511,6 +671,15 @@ async def test_unfreeze_requires_session(output_manager: object) -> None:
 async def test_end_session_while_frozen_cleans_up(output_manager: object) -> None:
     om, dm, _provider = output_manager  # type: ignore[misc]
     await om.begin_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     await om.go_live()
     await om.freeze()
     await om.end_session()
@@ -548,6 +717,15 @@ async def test_switch_live_to_routes_and_fullscreens_window(
 ) -> None:
     om, dm, _provider = output_manager  # type: ignore[misc]
     await om.begin_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     window = FakeWindow()
     report = await om.switch_live_to("disp-2", window)
     await _flush()
@@ -562,11 +740,20 @@ async def test_switch_live_to_routes_and_fullscreens_window(
 async def test_switch_live_to_unknown_display_raises(output_manager: object) -> None:
     om, _dm, _provider = output_manager  # type: ignore[misc]
     await om.begin_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     window = FakeWindow()
     with pytest.raises(DisplayNotFoundError):
         await om.switch_live_to("ghost", window)
     assert not window.fullscreen
-    assert om.state is OutputState.IDLE
+    assert om.state is OutputState.ARMED
 
 
 async def test_switch_live_to_rejects_display_without_fullscreen(
@@ -599,6 +786,15 @@ async def test_unfreeze_falls_back_to_blackout_when_live_display_gone(
 ) -> None:
     om, dm, provider = output_manager  # type: ignore[misc]
     await om.begin_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    om.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await om.arm()
     await om.go_live()
     await om.freeze()
 

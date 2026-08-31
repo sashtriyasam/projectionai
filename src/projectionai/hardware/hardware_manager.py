@@ -9,7 +9,7 @@ from __future__ import annotations
 import contextlib
 from typing import override
 
-from projectionai.core.events import EventBus
+from projectionai.core.events import Event, EventBus
 from projectionai.hardware.display_manager import DisplayManager
 from projectionai.hardware.display_validator import (
     DisplayValidator,
@@ -17,6 +17,10 @@ from projectionai.hardware.display_validator import (
     ValidationReport,
 )
 from projectionai.hardware.display_watcher import DisplayWatcher
+from projectionai.hardware.events import (
+    DisplayDisconnected,
+    DisplayResolutionChanged,
+)
 from projectionai.hardware.models import (
     DisplayInfo,
     DisplayKind,
@@ -28,6 +32,7 @@ from projectionai.hardware.output_manager import (
     OutputSession,
     OutputState,
 )
+from projectionai.hardware.runtime_watchdog import RuntimeWatchdog, WatchdogState
 from projectionai.managers import Manager
 
 
@@ -42,7 +47,12 @@ async def _shutdown_quietly(manager: Manager) -> None:
 
 
 class HardwareManager(Manager):
-    """Composite manager for the hardware layer."""
+    """Composite manager for the hardware layer.
+
+    Owns the RuntimeWatchdog lifecycle: starts it when going live,
+    stops it when ending sessions or shutting down. The watchdog is
+    optional — when None, no monitoring occurs.
+    """
 
     def __init__(
         self,
@@ -51,12 +61,15 @@ class HardwareManager(Manager):
         watcher: DisplayWatcher,
         output_manager: OutputManager,
         validator: DisplayValidator | None = None,
+        watchdog: RuntimeWatchdog | None = None,
     ) -> None:
         super().__init__(event_bus)
         self._display_manager = display_manager
         self._watcher = watcher
         self._output_manager = output_manager
         self._validator = validator or DisplayValidator()
+        self._watchdog = watchdog
+        self._watchdog_events_subscribed = False
 
     @override
     async def _on_initialize(self) -> None:
@@ -68,13 +81,44 @@ class HardwareManager(Manager):
             ):
                 await manager.initialize()
                 stack.push_async_callback(_shutdown_quietly, manager)
+
+            if self._watchdog is not None:
+                await self._watchdog.initialize()
+                stack.push_async_callback(_shutdown_quietly, self._watchdog)
+
             stack.pop_all()
+
+        # Subscribe to display topology events for watchdog forwarding.
+        # Subscriptions use weak references in the EventBus, so they are
+        # cleaned up when this instance is garbage-collected.
+        if self._watchdog is not None and not self._watchdog_events_subscribed:
+            self._event_bus.subscribe(
+                DisplayDisconnected, self._on_display_disconnected
+            )
+            self._event_bus.subscribe(
+                DisplayResolutionChanged, self._on_display_resolution_changed
+            )
+            self._watchdog_events_subscribed = True
 
     @override
     async def _on_shutdown(self) -> None:
+        if self._watchdog is not None:
+            await _shutdown_quietly(self._watchdog)
         await self._output_manager.shutdown()
         await self._watcher.shutdown()
         await self._display_manager.shutdown()
+
+    # -- Display event forwarding -------------------------------------------
+
+    async def _on_display_disconnected(self, event: Event) -> None:
+        """Forward display disconnection to the watchdog."""
+        if self._watchdog is not None and isinstance(event, DisplayDisconnected):
+            self._watchdog.notify_display_event("disconnected", event.display_id)
+
+    async def _on_display_resolution_changed(self, event: Event) -> None:
+        """Forward resolution change to the watchdog."""
+        if self._watchdog is not None and isinstance(event, DisplayResolutionChanged):
+            self._watchdog.notify_display_event("resolution_changed", event.display_id)
 
     # -- Topology -----------------------------------------------------------
 
@@ -156,7 +200,13 @@ class HardwareManager(Manager):
         await self._output_manager.begin_session(preview_display_id)
 
     async def end_output_session(self) -> None:
-        """End the active output session."""
+        """End the active output session.
+
+        Stops the watchdog before ending the session to prevent
+        stale triggers on a session that is already shutting down.
+        """
+        if self._watchdog is not None:
+            await self._watchdog.stop(reason="Session ended")
         await self._output_manager.end_session()
 
     async def set_output_preview(self, display_id: str | None) -> None:
@@ -168,8 +218,17 @@ class HardwareManager(Manager):
         return await self._output_manager.arm()
 
     async def go_live(self) -> ValidationReport:
-        """Switch the session live; returns the ValidationReport."""
-        return await self._output_manager.go_live()
+        """Switch the session live; returns the ValidationReport.
+
+        Starts the watchdog after a successful transition to LIVE.
+        If the session fails to go live, the watchdog is not started.
+        """
+        report = await self._output_manager.go_live()
+        # Start watchdog only after a successful go_live
+        session = self._output_manager.session
+        if self._watchdog is not None and session is not None:
+            await self._watchdog.start(session.session_id)
+        return report
 
     async def identify_display(self, display_id: str) -> None:
         """Flash the identified display on the physical hardware."""
@@ -220,6 +279,15 @@ class HardwareManager(Manager):
     async def unfreeze_output(self) -> None:
         """Resume the frozen output to its pre-freeze state."""
         await self._output_manager.unfreeze()
+
+    # -- Watchdog status -----------------------------------------------------
+
+    @property
+    def watchdog_state(self) -> WatchdogState | None:
+        """Current watchdog state, or None if no watchdog is configured."""
+        if self._watchdog is not None:
+            return self._watchdog.state
+        return None
 
     # -- Status ---------------------------------------------------------------
 

@@ -241,3 +241,70 @@ def _ensure_qapplication() -> Any:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
     return QApplication([])
+
+
+# ---------------------------------------------------------------------------
+# Pattern presentation target (Phase 7.5)
+# ---------------------------------------------------------------------------
+
+
+class QTPatternPresentationTarget:
+    """Qt-based display target for pattern presentation.
+
+    Wraps :class:`QtPatternProjector` to satisfy the
+    :class:`~projectionai.services.pattern_presentation.PatternPresentationTarget`
+    protocol used by :class:`~projectionai.services.pattern_presentation.PatternPresentationSession`.
+
+    Args:
+        projector: An existing :class:`QtPatternProjector` instance.
+    """
+
+    def __init__(self, projector: QtPatternProjector) -> None:
+        self._projector = projector
+
+    async def enter_fullscreen(self) -> None:
+        """No-op — the projector window is already fullscreen after the
+        first ``show`` call."""
+
+    async def show_pattern(
+        self,
+        pattern: Any,  # CalibrationPattern
+    ) -> int:
+        """Display *pattern* and return the presentation timestamp (ns).
+
+        Raises:
+            DisplayError: If pattern image resolution does not match
+                the target display resolution.
+        """
+        import time
+
+        from projectionai.domain.calibration_session import CalibrationPattern
+
+        if not isinstance(pattern, CalibrationPattern):
+            raise DisplayError(
+                f"expected CalibrationPattern, got {type(pattern).__name__}"
+            )
+
+        target_w, target_h = self._projector.resolution
+        img_h, img_w = pattern.image.shape[:2]
+        if img_w != target_w or img_h != target_h:
+            raise DisplayError(
+                f"pattern image {img_w}x{img_h} does not match "
+                f"target display {target_w}x{target_h}"
+            )
+
+        await self._projector.show(pattern.image)
+        return time.monotonic_ns()
+
+    async def hide(self) -> None:
+        """Blank the display."""
+        await self._projector.hide()
+
+    async def exit_fullscreen(self) -> None:
+        """Close the projection window."""
+        self._projector.close()
+
+    @property
+    def resolution(self) -> tuple[int, int]:
+        """The target display resolution."""
+        return self._projector.resolution

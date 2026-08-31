@@ -114,6 +114,15 @@ async def test_identify_display_forwards(hardware: object) -> None:
 async def test_emergency_blackout_cuts_live(hardware: object) -> None:
     hw, _provider = hardware  # type: ignore[misc]
     await hw.begin_output_session()
+    from projectionai.calibration.validator import (
+        ValidationReport as CalValidationReport,
+    )
+
+    cal = CalValidationReport(passed=True, quality_score=0.9)
+    hw._output_manager.set_calibration_context(
+        calibration_report=cal, hardware_pending=(), source_mode="LIVE"
+    )
+    await hw.arm_output()
     await hw.go_live()
     assert hw.is_live
     await hw.emergency_blackout()

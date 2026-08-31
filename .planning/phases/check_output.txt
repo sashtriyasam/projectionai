@@ -1,0 +1,24 @@
+[ WARN:0@0.089] global cap_ffmpeg_impl.hpp:1246 open VIDEOIO/FFMPEG: OpenCV should be configured with libavdevice to open a camera device
+[ERROR:0@22.839] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+[ERROR:0@23.030] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+[ERROR:0@23.232] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+[ERROR:0@23.408] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+[ERROR:0@23.551] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+[ERROR:0@23.820] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+PIXEL CHECK: objective visibility on secondary display
+Target: qt-serial-16843009 (LG TV SSCR2)
+QScreen: LG TV SSCR2 geometry=PySide6.QtCore.QRect(1920, 0, 1280, 720)
+Switch is_ok=True, state=live
+GL Ready: True, FBO id: 1
+  baseline (no pattern): grab=3840x2160 center=(0, 0, 0) mean_rgb=(0.0, 0.0, 0.0) distinct_colors=1 max_channel=0
+Showing: WHITE
+  WHITE: grab=3840x2160 center=(255, 255, 255) mean_rgb=(255.0, 255.0, 255.0) distinct_colors=1 max_channel=255
+Showing: CHECKERBOARD
+  CHECKERBOARD: grab=3840x2160 center=(96, 96, 96) mean_rgb=(108.8, 108.8, 108.8) distinct_colors=2 max_channel=160
+Showing: COLOUR_BARS
+  COLOUR_BARS: grab=3840x2160 center=(170, 85, 170) mean_rgb=(139.2, 122.2, 139.2) distinct_colors=5 max_channel=255
+Showing: GAMMA_RAMP
+  GAMMA_RAMP: grab=3840x2160 center=(127, 127, 127) mean_rgb=(127.0, 127.0, 127.0) distinct_colors=5 max_channel=229
+Showing: BLACK
+  BLACK: grab=3840x2160 center=(0, 0, 0) mean_rgb=(0.0, 0.0, 0.0) distinct_colors=1 max_channel=0
+Pixel check complete.

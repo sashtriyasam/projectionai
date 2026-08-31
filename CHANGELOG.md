@@ -41,7 +41,7 @@
 - Editor subsystems: selection manager, snap manager, gizmo manager, transform tools, input manager
 - Concrete managers: scene, asset, project, job, plugin, settings, workspace, command
 - Projector calibration pipeline with validation
-- Comprehensive test suite with 399 tests covering domain, editor, infrastructure, and core layers
+- Comprehensive test suite with 1,631+ tests covering domain, editor, infrastructure, and core layers
 
 ### Changed
 

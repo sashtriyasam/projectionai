@@ -1,0 +1,5 @@
+Phase,Objective,Scope,Deliverables,Dependencies,Risks,Validation Gates,Exit Criteria,Hardware Requirements,Backend Decisions,Reports,Commit(s),CI Status,Current Status
+Phase 5,Projection engine,Warp + renderer + native + integration,"WarpMesh, ProjectionPass, Factory, 234 tests",-,-,G-08,234 tests pass,-,"ModernGL, C++ measured-only",REPORT.md,2049cec,GREEN,DONE
+Phase 6.12,Sign-off,CodeRabbit revalidation + git checkpoint + CI Qt fix,"CI GREEN, no hang, 34 Qt fixtures",Phase 6.1-6.11,R-04 Qt leak,G-08 PASS,"CI green, no hang",Xvfb,Qt function-scoped,CI-QT-GLOBAL-AUDIT.md,e98fa23,GREEN,DONE
+Post-Audit,Post-review verification,~100 findings across 44 files,"0 fixes required, all verified",Phase 5+6 complete,-,N/A,"100% verified, no source changes",N/A,N/A,POST-AUDIT-CHECKPOINT.md,N/A,N/A,DONE
+Phase 7,Production calibration workflow + product integration,7.1-7.16 operator workflow,"Workflow UX, persistence, safety, HW validation",Phase 6 baseline + Post-Audit,"R-01, R-02",H-01..H-07,7.16 sign-off,Camera+Projector,TBD,7.1-7.14 reports done,-,-,IN_PROGRESS

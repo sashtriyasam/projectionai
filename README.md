@@ -7,7 +7,6 @@ Scan any object — a painting, sculpture, building facade, or stage — and Pro
 The long-term vision: become the "ChatGPT for Projection Mapping."
 
 [![CI](https://github.com/sashtriyasam/projectionai/actions/workflows/ci.yml/badge.svg)](https://github.com/sashtriyasam/projectionai/actions/workflows/ci.yml)
-[![Coverage](https://codecov.io/github/sashtriyasam/projectionai/branch/init%2Freadme/graph/badge.svg)](https://codecov.io/github/sashtriyasam/projectionai)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-000000)](https://docs.astral.sh/ruff/)
 [![Checked with mypy](https://img.shields.io/badge/mypy-strict-blue)](https://mypy-lang.org/)
@@ -19,8 +18,7 @@ The long-term vision: become the "ChatGPT for Projection Mapping."
 
 ![ProjectionAI main window](screenshots/main-window.png)
 
-The desktop shell with docked scene/asset/devices panels, the 3D
-viewport, and the hardware status bar.
+The desktop shell with docked scene/asset/devices panels, the 3D viewport, and the hardware status bar.
 
 ---
 
@@ -29,12 +27,12 @@ viewport, and the hardware status bar.
 - **Object Scanning** — Photograph or scan physical objects to auto-estimate geometry
 - **Surface Detection** — Computer vision identifies planar and curved projection surfaces
 - **AI Content Generation** — Provider-agnostic AI engine (Gemini, OpenAI, Anthropic, Replicate)
-- **Projector Calibration** — Structured-light / gray-code pipeline with camera+yestimation models and hardware validation
-- **Display & Output Management** — Display topology detection, change tracking, validation gates, safe preview/live output sessions
+- **Projector Calibration** — Structured-light / gray-code pipeline with camera + Y estimation models and hardware validation
+- **Display & Output Management** — Display topology detection, change tracking, validation gates, safe preview / live output sessions
 - **Automatic Warping** — Generated content is automatically mapped onto object surfaces
 - **Real-time Preview** — See exactly how projections will look before projecting
 - **Multi-projector Ready** — Architecture supports future multi-projector setups
-- **Undo/redo & background jobs** — Typed command history plus a priority job queue
+- **Undo/redo & Background Jobs** — Typed command history plus a priority job queue
 
 ---
 
@@ -62,9 +60,7 @@ cp .env.example .env
 python -m projectionai        # or: uv run projectionai
 ```
 
-The application runs without any AI provider configured — content
-warping, calibration, display output, and the 3D viewport all work
-offline. Providers are only needed for AI content generation.
+The application runs without any AI provider configured — content warping, calibration, display output, and the 3D viewport all work offline. Providers are only needed for AI content generation.
 
 ---
 
@@ -74,7 +70,7 @@ offline. Providers are only needed for AI content generation.
 # Install with dev dependencies
 uv sync --extra dev
 
-# Run the full test suite (880+ tests)
+# Run the full test suite
 pytest
 
 # Type check (strict)
@@ -93,7 +89,8 @@ pre-commit install
 
 - Run everything: `pytest`
 - Focus on one area: `pytest tests/unit/hardware`
-- Coverage gate: `--cov-fail-under=60` (enforced by default in CI; ~62% covered today)
+- Coverage gate: `--cov-fail-under=60` (enforced by default in CI)
+- Global timeout: 300s per test (pytest-timeout); tests that hang will be killed deterministically
 - Markers: `slow`, `integration`, `requires_gpu`, `requires_camera`
 - UI tests run headless via `QT_QPA_PLATFORM=offscreen`
 
@@ -143,7 +140,7 @@ src/projectionai/               # Main package
         (AI providers · OpenCV · ModernGL · SQLite · Display)
 ```
 
-See [docs/Architecture.md](docs/Architecture.md) for a detailed walkthrough, [docs/ADR/](docs/ADR/) for architecture decision records (11 ADRs), and [docs/UX-ARCHITECTURE.md](docs/UX-ARCHITECTURE.md) for the desktop UX design.
+See [docs/Architecture.md](docs/Architecture.md) for a detailed walkthrough, [docs/ADR/](docs/ADR/) for architecture decision records (12 ADRs), and [docs/UX-ARCHITECTURE.md](docs/UX-ARCHITECTURE.md) for the desktop UX design.
 
 ### Coding Standards
 
@@ -157,33 +154,27 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow.
 
 ### Layers & Dependencies Between Modules
 
-The codebase follows **Clean Architecture** with a strictly one-way dependency
-direction: `UI → Application → Domain`, with domain consuming only service
-interfaces that infrastructure implementations provide. See
-[ADR-007](docs/ADR/007-domain-package-structure.md) for details.
+The codebase follows **Clean Architecture** with a strictly one-way dependency direction: `UI → Application → Domain`, with domain consuming only service interfaces that infrastructure implementations provide. See [ADR-007](docs/ADR/007-domain-package-structure.md) for details.
 
 ---
 
 ## Project Status
 
-Current development version: **v0.1.0.dev0** — see the [Roadmap](ROADMAP.md)
-for milestone tracking and [CHANGELOG.md](CHANGELOG.md) for release notes.
+Current development version: **v0.1.0.dev0** — see the [Roadmap](ROADMAP.md) for milestone tracking and [CHANGELOG.md](CHANGELOG.md) for release notes.
 
-Because display hardware and projections are hard to ship in CI, the codebase
-is exercised with deterministic mock providers; see `docs/HARDWARE-VALIDATION.md`
-and `docs/OUTPUT.md` for the display output contracts and validation gates.
+Because display hardware and projections are hard to ship in CI, the codebase is exercised with deterministic mock providers; see `docs/HARDWARE-VALIDATION.md` and `docs/OUTPUT.md` for the display output contracts and validation gates.
+
+**Hardware validation** (Phase 7.15) requires a physical camera, projector, and projection surface. These gates are currently HARDWARE_PENDING — see [docs/HARDWARE-VALIDATION.md](docs/HARDWARE-VALIDATION.md) for the test harness and readiness checklist.
 
 ---
 
 ## Contributing
 
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the setup,
-code style, testing, and PR workflow. Please read the [Code of Conduct](CODE_OF_CONDUCT.md) as well.
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the setup, code style, testing, and PR workflow. Please read the [Code of Conduct](CODE_OF_CONDUCT.md) as well.
 
 ### Security
 
-If you find a security vulnerability, please follow the process in [SECURITY.md](SECURITY.md)
-(do not open a public issue).
+If you find a security vulnerability, please follow the process in [SECURITY.md](SECURITY.md) (do not open a public issue).
 
 ---
 

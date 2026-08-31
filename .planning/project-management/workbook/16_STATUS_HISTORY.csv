@@ -1,0 +1,26 @@
+Timestamp,Task ID,Phase,Old Status,New Status,Effort Before,Effort After,Percent Complete Before,Percent Complete After,Change Source,Commit SHA,Notes
+2026-08-25,ALL,6.12,IN_PROGRESS,DONE,,,,,PROJECT-CONTROL-CENTER baseline import,e98fa23,Baseline / tracking begins on 2026-08-25
+2026-08-27,AUDIT-1,Post-Audit,N/A,DONE,0,0,0,100,Post-audit checkpoint,POST-AUDIT-CHECKPOINT.md,~100 findings 44 files 0 fixes
+2026-08-27,7.4,Phase 7,BACKLOG,IN_PROGRESS,0,0,0,0,Phase 7.4 start,-,Calibration Progress UI
+2026-08-28,7.4,Phase 7,IN_PROGRESS,REVIEW,0,0,100,100,Phase 7.4 complete,-,24/24 tests passing ruff/mypy clean
+2026-08-28,7.4,Phase 7,REVIEW,DONE,0,0,100,100,Phase 7.4 review gate passed - 33/33 tests,PRECHECK stage removed,Quality gates ruff/mypy clean
+2026-08-28,7.5,Phase 7,BACKLOG,IN_PROGRESS,0,0,0,0,Phase 7.5 start,-,Pattern Presentation Integration
+2026-08-28,7.5,Phase 7,IN_PROGRESS,REVIEW,0,0,100,100,Phase 7.5 implementation complete,-,28/28 tests passing ruff/mypy clean
+2026-08-28,7.5,Phase 7,REVIEW,DONE,0,0,100,100,Phase 7.5 review gate passed - 15-gate audit,29/29 tests ruff/mypy clean,Production path clarified BEST_EFFORT timestamp
+2026-08-30,7.1,Phase 7,BACKLOG,DONE,0,2,0,100,manual,-,Phase 7.1 workflow orchestration
+2026-08-30,7.2,Phase 7,BACKLOG,DONE,0,1,0,100,manual,-,Phase 7.2 selection UX
+2026-08-30,7.3,Phase 7,BACKLOG,DONE,0,1,0,100,manual,-,Phase 7.3 surface setup
+2026-08-30,7.6,Phase 7,BACKLOG,DONE,0,1,0,100,manual,-,Phase 7.6 capture recovery
+2026-08-30,7.7,Phase 7,BACKLOG,DONE,0,1,0,100,manual,-,Phase 7.7 pipeline progress
+2026-08-30,7.8,Phase 7,BACKLOG,DONE,0,1,0,100,manual,-,Phase 7.8 result review
+2026-08-30,7.9,Phase 7,BACKLOG,DONE,0,1,0,100,manual,-,Phase 7.9 warp preview
+2026-08-30,7.10,Phase 7,BACKLOG,DONE,0,1,0,100,manual,-,Phase 7.10 persistence/recall
+2026-08-30,7.11,Phase 7,BACKLOG,DONE,0,1,0,100,manual,-,Phase 7.11 validation/safety
+2026-08-30,7.12,Phase 7,BACKLOG,DONE,0,1,0,100,manual,-,Phase 7.12 arm/live
+2026-08-30,7.13,Phase 7,BACKLOG,DONE,0,1,0,100,manual,-,Phase 7.13 error recovery
+2026-08-30,7.14,Phase 7,BACKLOG,IN_PROGRESS,0,0,0,0,manual,-,Phase 7.14 end-to-end integration started
+2026-08-30,7.14,Phase 7,IN_PROGRESS,DONE,0,0,100,100,manual,-,Phase 7.14 end-to-end integration audit complete (378/378 tests pass, all handoffs verified)
+2026-08-30,7.15,Phase 7,BACKLOG,IN_PROGRESS,0,0,0,0,manual,-,Phase 7.15 hardware validation started (HARDWARE_PENDING — no physical rig)
+2026-08-30,7.16,Phase 7,BACKLOG,IN_PROGRESS,0,0,0,0,manual,-,Phase 7.16 Wave 1 software verification started
+2026-08-30,7.16,Phase 7,IN_PROGRESS,REVIEW,0,0,100,100,manual,-,Phase 7.16 Wave 1 complete — 1099 tests pass 0 fail, ruff/mypy clean, REPORT.md written
+2026-08-31,POST-7.16,Post-Maintenance,N/A,DONE,0,0,0,100,post-7.16 maintenance,-,POST-7.16: fixed calibration hang (test_replay.py image size), fixed mypy no-any-return (persistence.py:333), added pytest-timeout 300s, README rewritten, CHANGELOG updated, 1631 tests pass, 0 fail, ruff/mypy clean, temp artifacts cleaned

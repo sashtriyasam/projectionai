@@ -13,14 +13,25 @@ manager drives a single active session.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import override
+from typing import TYPE_CHECKING, override
 
+if TYPE_CHECKING:
+    from projectionai.calibration.validator import ValidationReport as CalReport
+
+import time
+
+from projectionai.calibration.validation_gate import (
+    ValidationGate,
+    ValidationGateResult,
+)
 from projectionai.core.events import EventBus
 from projectionai.hardware.display_manager import DisplayManager
 from projectionai.hardware.display_validator import (
@@ -29,24 +40,32 @@ from projectionai.hardware.display_validator import (
     ValidationReport,
 )
 from projectionai.hardware.errors import (
+    CalibrationInvalidError,
+    DisplayLostError,
     DisplayNotFoundError,
+    LiveNotAuthorizedError,
     OutputSessionError,
     OutputSwitchError,
 )
 from projectionai.hardware.events import (
     OutputArmed,
     OutputBlackout,
+    OutputDisarmed,
     OutputFrozen,
     OutputLiveStarted,
     OutputPreviewChanged,
     OutputSessionEnded,
     OutputSessionStarted,
+    OutputStopped,
     OutputUnfrozen,
 )
-from projectionai.hardware.models import OutputWindow
+from projectionai.hardware.models import DisplayMode, OutputWindow
 from projectionai.managers import Manager
 
 _logger = logging.getLogger(__name__)
+
+# Stale gate threshold: 300 seconds (5 minutes)
+_GATE_STALE_SECONDS = 300.0
 
 
 class OutputState(StrEnum):
@@ -54,10 +73,13 @@ class OutputState(StrEnum):
 
     IDLE = "idle"
     PREVIEW = "preview"
+    ARMING = "arming"
     ARMED = "armed"
     LIVE = "live"
+    STOPPING = "stopping"
     BLACKOUT = "blackout"
     FREEZE = "freeze"
+    FAILED = "failed"
 
 
 @dataclass(frozen=True)
@@ -82,15 +104,25 @@ class OutputManager(Manager):
         validator: DisplayValidator | None = None,
         renderer_ready_provider: Callable[[], bool] | None = None,
         window_available_provider: Callable[[], bool] | None = None,
+        validation_gate: ValidationGate | None = None,
     ) -> None:
         super().__init__(event_bus)
         self._display_manager = display_manager
         self._validator = validator or DisplayValidator()
+        self._validation_gate = validation_gate
         self._session: OutputSession | None = None
         self._history: list[OutputSession] = []
         self._pre_freeze_state: OutputState | None = None
         self._renderer_ready_provider = renderer_ready_provider
         self._window_available_provider = window_available_provider
+        self._calibration_report: CalReport | None = None
+        self._hardware_pending: tuple[str, ...] = ()
+        self._source_mode: str = "SYNTHETIC"
+        self._last_gate_result: ValidationGateResult | None = None
+        # Concurrency guards
+        self._arming_lock = asyncio.Lock()
+        self._live_lock = asyncio.Lock()
+        self._stopping_lock = asyncio.Lock()
 
     # -- Lifecycle ---------------------------------------------------------
 
@@ -131,6 +163,52 @@ class OutputManager(Manager):
     def display_manager(self) -> DisplayManager:
         """Return the underlying display manager."""
         return self._display_manager
+
+    # -- Gate context --------------------------------------------------------
+
+    def set_calibration_context(
+        self,
+        *,
+        calibration_report: CalReport | None = None,
+        hardware_pending: tuple[str, ...] = (),
+        source_mode: str = "SYNTHETIC",
+    ) -> None:
+        """Set the calibration context for the unified validation gate.
+
+        Call this before :meth:`arm` or :meth:`go_live` so the gate can
+        evaluate calibration quality, hardware pending, and source mode
+        in addition to display routing.
+
+        Args:
+            calibration_report: Output of ``CalibrationValidator.validate()``.
+                ``None`` means no calibration exists (gate FAILS V-01).
+            hardware_pending: Tuple of pending hardware gate strings from
+                ``ProductionWorkflow.hardware_pending``.
+            source_mode: One of ``SYNTHETIC``, ``REPLAY``, ``LIVE``.
+        """
+        self._calibration_report = calibration_report
+        self._hardware_pending = tuple(hardware_pending)
+        sm = source_mode.upper() if source_mode else "SYNTHETIC"
+        self._source_mode = sm if sm in ("SYNTHETIC", "REPLAY", "LIVE") else "SYNTHETIC"
+
+    @property
+    def gate_result(self) -> ValidationGateResult | None:
+        """The most recent unified gate evaluation, or ``None`` if not yet run."""
+        return self._last_gate_result
+
+    @property
+    def can_arm(self) -> bool:
+        """True when the gate authorizes arming (or gate is not configured)."""
+        if self._validation_gate is None:
+            return True  # backward compat: no gate = legacy behavior
+        return self._last_gate_result is not None and self._last_gate_result.can_arm
+
+    @property
+    def can_live(self) -> bool:
+        """True when the gate authorizes going live (or gate is not configured)."""
+        if self._validation_gate is None:
+            return True
+        return self._last_gate_result is not None and self._last_gate_result.can_live
 
     # -- Session lifecycle ---------------------------------------------------
 
@@ -196,90 +274,238 @@ class OutputManager(Manager):
         )
         self._emit_nowait(OutputPreviewChanged(session.session_id, display_id))
 
+    # -- Unified gate --------------------------------------------------------
+
+    def _run_gate(
+        self,
+        *,
+        display_report: ValidationReport | None = None,
+        require_projector: bool = True,
+    ) -> ValidationGateResult:
+        assert self._validation_gate is not None
+        if display_report is None:
+            display_report = self._validate_current(
+                self._require_session(), require_projector=require_projector
+            )
+        result = self._validation_gate.check(
+            calibration_report=self._calibration_report,
+            display_report=display_report,
+            hardware_pending=self._hardware_pending,
+            source_mode=self._source_mode,
+        )
+        self._last_gate_result = result
+        return result
+
     async def arm(self, require_projector: bool = True) -> ValidationReport:
         """Validate the current routing and mark the session ``ARMED``.
 
-        Safe: does not change live output. Returns the report so the UI
-        can surface errors without aborting the intent.
+        When a :class:`ValidationGate` is configured, the unified gate
+        is evaluated in addition to the display validator.  The session
+        only transitions to ARMED when **both** the display report is OK
+        **and** the gate authorises arming.
 
-        Args:
-            require_projector: Whether to require a projector as the live target.
-                Defaults to True for production safety. Pass False only for
-                hardware validation on non-projector displays.
+        Safe: does not change live output. Returns the display report so
+        the UI can surface errors without aborting the intent.
+        Gate authorization failures do NOT raise — the report is returned
+        for the UI to surface. This differs from go_live() which raises
+        LiveNotAuthorizedError on gate failure.
         """
-        self._require_initialized()
-        session = self._require_session()
-        report = self._validate_current(session, require_projector=require_projector)
-        if report.is_ok:
+        async with self._arming_lock:
+            self._require_initialized()
+            session = self._require_session()
+
+            # Only allow arming from PREVIEW or IDLE
+            if session.state not in (OutputState.PREVIEW, OutputState.IDLE):
+                raise OutputSessionError(
+                    f"Cannot arm from {session.state.value!r} — "
+                    "must be in PREVIEW or IDLE state."
+                )
+
+            # Transition to ARMING
             self._record(
                 OutputSession(
                     session_id=session.session_id,
-                    state=OutputState.ARMED,
+                    state=OutputState.ARMING,
                     preview_display_id=session.preview_display_id,
                     live_display_id=session.live_display_id,
                     created_at=session.created_at,
                     updated_at=datetime.now(UTC),
                 )
             )
-            self._emit_nowait(OutputArmed(session.session_id, session.live_display_id))
-        return report
+
+            try:
+                report = self._validate_current(
+                    session, require_projector=require_projector
+                )
+
+                gate_ok = True
+                gate_result = None
+                if self._validation_gate is not None:
+                    gate_result = self._run_gate(
+                        display_report=report,
+                        require_projector=require_projector,
+                    )
+                    gate_ok = gate_result.can_arm
+
+                if report.is_ok and gate_ok:
+                    self._record(
+                        OutputSession(
+                            session_id=session.session_id,
+                            state=OutputState.ARMED,
+                            preview_display_id=session.preview_display_id,
+                            live_display_id=session.live_display_id,
+                            created_at=session.created_at,
+                            updated_at=datetime.now(UTC),
+                        )
+                    )
+                    self._emit_nowait(
+                        OutputArmed(session.session_id, session.live_display_id)
+                    )
+                    _logger.info("Output armed: %s", session.session_id)
+                else:
+                    # Rollback to previous state on failure (does not raise — caller checks report)
+                    rollback_state = (
+                        session.state
+                        if session.state in (OutputState.PREVIEW, OutputState.IDLE)
+                        else OutputState.PREVIEW
+                    )
+                    self._record(
+                        OutputSession(
+                            session_id=session.session_id,
+                            state=rollback_state,
+                            preview_display_id=session.preview_display_id,
+                            live_display_id=session.live_display_id,
+                            created_at=session.created_at,
+                            updated_at=datetime.now(UTC),
+                        )
+                    )
+            except Exception as exc:
+                # Unexpected error during arm — transition to FAILED
+                _logger.exception("Unexpected error during arm: %s", exc)
+                self._record(
+                    OutputSession(
+                        session_id=session.session_id,
+                        state=OutputState.FAILED,
+                        preview_display_id=session.preview_display_id,
+                        live_display_id=session.live_display_id,
+                        created_at=session.created_at,
+                        updated_at=datetime.now(UTC),
+                    )
+                )
+                raise
+            return report
 
     async def go_live(self, require_projector: bool = True) -> ValidationReport:
         """Switch the session live — only when validation passes.
+
+        When a :class:`ValidationGate` is configured, the unified gate
+        is evaluated in addition to the display validator.  The session
+        only transitions to LIVE when **both** the display report is OK
+        **and** the gate authorises going live.
 
         The live target is resolved first (auto-routing to the first
         projector when none was chosen) and the resolved target is what
         validation runs against; output is only switched afterwards.
 
-        Args:
-            require_projector: Whether to require a projector as the live target.
-                Defaults to True for production safety. Pass False only for
-                hardware validation on non-projector displays.
-
         Raises:
             OutputSwitchError: When validation reports errors (the
                 switch is aborted; state is unchanged).
-        """
-        self._require_initialized()
-        session = self._require_session()
+            LiveNotAuthorizedError: When the validation gate rejects going live.
 
-        live_id = session.live_display_id
-        if not require_projector:
-            if live_id is None:
-                raise OutputSwitchError(
-                    "Live switch rejected: no live target set. Call set_live_target() first.",
-                    ValidationReport(),
+        Note: Unlike arm() which returns a report on gate failure, go_live()
+        raises LiveNotAuthorizedError on gate failure. This asymmetry is
+        intentional: arm() is a "safe" operation returning a report for UI
+        display, while go_live() is a "critical" operation that must fail
+        loudly on authorization failure.
+        """
+        async with self._live_lock:
+            self._require_initialized()
+            session = self._require_session()
+
+            # Only allow going live from ARMED state
+            if session.state is not OutputState.ARMED:
+                raise OutputSessionError(
+                    f"Cannot go live from {session.state.value!r} — "
+                    "must be in ARMED state."
                 )
-        else:
-            if live_id is None:
-                # Auto-route to the first projector when none was chosen.
-                projectors = self._display_manager.projectors
-                if not projectors:
+
+            live_id = session.live_display_id
+            if not require_projector:
+                if live_id is None:
                     raise OutputSwitchError(
-                        "Live switch rejected: no projector available",
+                        "Live switch rejected: no live target set. Call set_live_target() first.",
                         ValidationReport(),
                     )
-                live_id = projectors[0].display_id
-                session = replace(session, live_display_id=live_id)
+            else:
+                if live_id is None:
+                    projectors = self._display_manager.projectors
+                    if not projectors:
+                        raise OutputSwitchError(
+                            "Live switch rejected: no projector available",
+                            ValidationReport(),
+                        )
+                    live_id = projectors[0].display_id
+                    session = replace(session, live_display_id=live_id)
 
-        report = self._validate_current(session, require_projector=require_projector)
-        if not report.is_ok:
-            raise OutputSwitchError(f"Live switch rejected: {report.summary}", report)
+            try:
+                # Validate display routing first
+                report = self._validate_current(
+                    session, require_projector=require_projector
+                )
+                if not report.is_ok:
+                    raise OutputSwitchError(
+                        f"Live switch rejected: {report.summary}", report
+                    )
 
-        self._display_manager.set_live_output(live_id)
-        self._record(
-            OutputSession(
-                session_id=session.session_id,
-                state=OutputState.LIVE,
-                preview_display_id=session.preview_display_id,
-                live_display_id=live_id,
-                created_at=session.created_at,
-                updated_at=datetime.now(UTC),
-            )
-        )
-        self._emit_nowait(OutputLiveStarted(session.session_id, live_id))
-        _logger.info("Output live on %s", live_id)
-        return report
+                # Re-evaluate authorization gate immediately before going live
+                if self._validation_gate is not None:
+                    gate_result = self._run_gate(
+                        display_report=report,
+                        require_projector=require_projector,
+                    )
+                    if not gate_result.can_live:
+                        failed_gates = [
+                            r.gate_id.value for r in gate_result.failed_gates
+                        ]
+                        raise LiveNotAuthorizedError(
+                            f"Live switch rejected by validation gate: {failed_gates}",
+                            gate_result,
+                        )
+
+                # Activate live output
+                self._display_manager.set_live_output(live_id)
+                self._record(
+                    OutputSession(
+                        session_id=session.session_id,
+                        state=OutputState.LIVE,
+                        preview_display_id=session.preview_display_id,
+                        live_display_id=live_id,
+                        created_at=session.created_at,
+                        updated_at=datetime.now(UTC),
+                    )
+                )
+                self._emit_nowait(OutputLiveStarted(session.session_id, live_id))
+                _logger.info("Output live on %s", live_id)
+            except (OutputSwitchError, LiveNotAuthorizedError):
+                # Expected validation failures — re-raise without state change
+                raise
+            except Exception as exc:
+                # Unexpected error during go_live — blackout and transition to FAILED
+                _logger.exception("Unexpected error during go_live: %s", exc)
+                with contextlib.suppress(Exception):
+                    self._display_manager.set_live_output(None)
+                self._record(
+                    OutputSession(
+                        session_id=session.session_id,
+                        state=OutputState.FAILED,
+                        preview_display_id=session.preview_display_id,
+                        live_display_id=session.live_display_id,
+                        created_at=session.created_at,
+                        updated_at=datetime.now(UTC),
+                    )
+                )
+                raise
+            return report
 
     async def blackout(self) -> None:
         """Cut live output (state ``BLACKOUT``, live route kept)."""
@@ -376,6 +602,171 @@ class OutputManager(Manager):
         )
         self._emit_nowait(OutputUnfrozen(session.session_id, restored))
         _logger.info("Output unfrozen: %s", session.session_id)
+
+    async def disarm(self, reason: str = "Operator requested disarm") -> None:
+        """Return from ARMED to PREVIEW state.
+
+        Does not affect live output (only valid from ARMED/ARMING).
+        """
+        self._require_initialized()
+        session = self._require_session()
+        if session.state not in (OutputState.ARMED, OutputState.ARMING):
+            raise OutputSessionError(
+                f"Cannot disarm from {session.state.value!r} — "
+                "must be in ARMED or ARMING state."
+            )
+        self._record(
+            OutputSession(
+                session_id=session.session_id,
+                state=OutputState.PREVIEW,
+                preview_display_id=session.preview_display_id,
+                live_display_id=session.live_display_id,
+                created_at=session.created_at,
+                updated_at=datetime.now(UTC),
+            )
+        )
+        self._emit_nowait(OutputDisarmed(session.session_id, reason))
+        _logger.info("Output disarmed: %s (reason: %s)", session.session_id, reason)
+
+    async def safe_stop(self, reason: str = "Operator requested safe stop") -> None:
+        """Idempotent safe stop from any state.
+
+        - If LIVE: blackout, clear live route, end session
+        - If ARMED/ARMING: disarm, end session
+        - If PREVIEW/IDLE/FREEZE/BLACKOUT: end session
+        - If STOPPING: no-op (already stopping)
+        """
+        async with self._stopping_lock:
+            self._require_initialized()
+            session = self._session
+            if session is None:
+                return  # already idle
+
+            # Transition to STOPPING
+            self._record(
+                OutputSession(
+                    session_id=session.session_id,
+                    state=OutputState.STOPPING,
+                    preview_display_id=session.preview_display_id,
+                    live_display_id=session.live_display_id,
+                    created_at=session.created_at,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+
+            # Cut live output first if active
+            if session.state in (OutputState.LIVE, OutputState.FREEZE):
+                self._display_manager.set_live_output(None)
+            # Blackout output window
+            if session.state == OutputState.LIVE:
+                try:
+                    await self.blackout()
+                except Exception as exc:
+                    _logger.warning("Blackout during safe_stop failed: %s", exc)
+
+            # Clear routes
+            self._display_manager.set_live_output(None)
+            self._display_manager.set_preview_output(None)
+
+            self._emit_nowait(OutputSessionEnded(session.session_id))
+            self._session = None
+            self._pre_freeze_state = None
+
+            self._emit_nowait(OutputStopped(session.session_id, reason))
+            _logger.info(
+                "Safe stop completed: %s (reason: %s)", session.session_id, reason
+            )
+
+    async def handle_display_loss(self, display_id: str) -> None:
+        """Handle unexpected display disconnection.
+
+        If the live display is lost while LIVE/FREEZE: safe stop + raise.
+        If preview display lost: clear preview route.
+        """
+        self._require_initialized()
+        session = self._session
+        if session is None:
+            return
+
+        if session.live_display_id == display_id:
+            # Live display lost - emergency safe stop
+            await self.safe_stop(f"Live display lost: {display_id}")
+            raise DisplayLostError(display_id)
+
+        if session.preview_display_id == display_id:
+            # Preview display lost - clear preview route
+            self._record(
+                OutputSession(
+                    session_id=session.session_id,
+                    state=session.state,
+                    preview_display_id=None,
+                    live_display_id=session.live_display_id,
+                    created_at=session.created_at,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            self._display_manager.set_preview_output(None)
+            self._emit_nowait(OutputPreviewChanged(session.session_id, None))
+            _logger.warning("Preview display lost: %s", display_id)
+
+    async def handle_resolution_change(
+        self, display_id: str, old_mode: DisplayMode, new_mode: DisplayMode
+    ) -> None:
+        """Handle resolution/refresh rate change on active display.
+
+        If live display resolution changes: invalidate live authorization.
+        """
+        self._require_initialized()
+        session = self._session
+        if session is None:
+            return
+
+        if session.live_display_id == display_id and session.state == OutputState.LIVE:
+            # Live display resolution changed - must re-validate
+            await self.safe_stop(
+                f"Live display resolution changed: {old_mode.label} -> {new_mode.label}"
+            )
+            raise CalibrationInvalidError(
+                f"Live display {display_id} resolution changed: {old_mode.label} -> {new_mode.label}",
+                calibration_id=None,
+            )
+
+    def check_gate_stale(self) -> bool:
+        """Check if the last gate evaluation is stale (> 300s)."""
+        if self._last_gate_result is None:
+            return True
+        age = time.time() - self._last_gate_result.evaluated_at
+        return age > _GATE_STALE_SECONDS
+
+    async def rearm_after_failure(self) -> None:
+        """Clear failed state and re-evaluate gate for re-arm attempt.
+
+        Caller must ensure failure cause is resolved before calling.
+        """
+        self._require_initialized()
+        session = self._require_session()
+        if session.state not in (
+            OutputState.FAILED,
+            OutputState.PREVIEW,
+            OutputState.IDLE,
+        ):
+            raise OutputSessionError(
+                f"Cannot re-arm from {session.state.value!r} — "
+                "must be in FAILED, PREVIEW, or IDLE."
+            )
+        self._record(
+            OutputSession(
+                session_id=session.session_id,
+                state=OutputState.PREVIEW,
+                preview_display_id=session.preview_display_id,
+                live_display_id=session.live_display_id,
+                created_at=session.created_at,
+                updated_at=datetime.now(UTC),
+            )
+        )
+        # Clear gate result to force re-evaluation
+        self._last_gate_result = None
+        _logger.info("Re-arm ready: %s", session.session_id)
 
     # -- Safe switch helper ---------------------------------------------------
 
