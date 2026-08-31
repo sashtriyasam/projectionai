@@ -96,6 +96,7 @@ dev = [
     "pytest-cov>=4.1",
     "pytest-qt>=4.2",
     "pytest-asyncio>=0.23",
+    "pytest-timeout>=2.3",
 
     # Linting & Formatting
     "ruff>=0.2",
