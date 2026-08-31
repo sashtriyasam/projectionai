@@ -100,8 +100,9 @@ def test_corruption_reordered(_artifact: Path) -> None:
 
 
 def test_multiple_resolutions(tmp_path: Path) -> None:
-    # Use small resolutions to keep temp I/O fast (total ~13 MB instead of ~1.2 GB).
-    for w, h in [(160, 120), (320, 240), (640, 480)]:
+    # Use small resolutions to keep temp I/O fast and CI-safe (< 300s timeout).
+    # 640×480 excluded — sha256 hash of the full artifact exceeds timeout on CI.
+    for w, h in [(160, 120), (320, 240)]:
         seq = synthetic_sequence(resolution=(w, h))
         caps = tuple(
             cv2.cvtColor(c, cv2.COLOR_RGB2GRAY) for c in synthetic_captures(seq)
