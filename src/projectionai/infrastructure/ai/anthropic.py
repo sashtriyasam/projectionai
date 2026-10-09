@@ -66,7 +66,7 @@ class AnthropicProvider:
         # pyright: ignore[reportUnreachable] — unreachable; keeps this an async generator
         yield
 
-    async def chat(self, request: ChatRequest) -> ChatResult:
+    def _request_kwargs(self, request: ChatRequest) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "model": self._config.model,
             "max_tokens": request.max_tokens,
@@ -80,9 +80,13 @@ class AnthropicProvider:
         }
         if request.system_prompt:
             kwargs["system"] = request.system_prompt
+        return kwargs
 
+    async def chat(self, request: ChatRequest) -> ChatResult:
         started = time.perf_counter()
-        response = await self._get_client().messages.create(**kwargs)
+        response = await self._get_client().messages.create(
+            **self._request_kwargs(request)
+        )
         text = "".join(block.text for block in response.content if block.type == "text")
         return ChatResult(
             message=Message(role="assistant", content=text),
@@ -91,10 +95,20 @@ class AnthropicProvider:
             latency_ms=(time.perf_counter() - started) * 1000,
         )
 
-    async def chat_stream(self, _request: ChatRequest) -> AsyncIterator[ChatResult]:
-        raise NotImplementedError("Streaming chat is not implemented yet.")
-        # pyright: ignore[reportUnreachable] — unreachable; keeps this an async generator
-        yield
+    async def chat_stream(self, request: ChatRequest) -> AsyncIterator[ChatResult]:
+        started = time.perf_counter()
+        text = ""
+        async with self._get_client().messages.stream(
+            **self._request_kwargs(request)
+        ) as stream:
+            async for piece in stream.text_stream:
+                text += piece
+                yield ChatResult(
+                    message=Message(role="assistant", content=text),
+                    provider=self._name,
+                    model=self._config.model,
+                    latency_ms=(time.perf_counter() - started) * 1000,
+                )
 
 
 register = make_register(

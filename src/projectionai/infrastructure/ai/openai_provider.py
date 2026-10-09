@@ -69,7 +69,7 @@ class OpenAIProvider:
         # pyright: ignore[reportUnreachable] — unreachable; keeps this an async generator
         yield
 
-    async def chat(self, request: ChatRequest) -> ChatResult:
+    def _request_kwargs(self, request: ChatRequest) -> dict[str, Any]:
         messages: list[dict[str, str]] = []
         if request.system_prompt:
             messages.append({"role": "system", "content": request.system_prompt})
@@ -78,13 +78,17 @@ class OpenAIProvider:
             for m in request.messages
             if m.role in ("user", "assistant")
         )
-
-        started = time.perf_counter()
         # Temperature is omitted: GPT-5 family models accept only the default.
+        return {
+            "model": self._config.model,
+            "messages": messages,
+            "max_completion_tokens": request.max_tokens,
+        }
+
+    async def chat(self, request: ChatRequest) -> ChatResult:
+        started = time.perf_counter()
         response = await self._get_client().chat.completions.create(
-            model=self._config.model,
-            messages=messages,
-            max_completion_tokens=request.max_tokens,
+            **self._request_kwargs(request)
         )
         text = response.choices[0].message.content or ""
         return ChatResult(
@@ -94,10 +98,24 @@ class OpenAIProvider:
             latency_ms=(time.perf_counter() - started) * 1000,
         )
 
-    async def chat_stream(self, _request: ChatRequest) -> AsyncIterator[ChatResult]:
-        raise NotImplementedError("Streaming chat is not implemented yet.")
-        # pyright: ignore[reportUnreachable] — unreachable; keeps this an async generator
-        yield
+    async def chat_stream(self, request: ChatRequest) -> AsyncIterator[ChatResult]:
+        started = time.perf_counter()
+        text = ""
+        stream = await self._get_client().chat.completions.create(
+            **self._request_kwargs(request), stream=True
+        )
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            piece = chunk.choices[0].delta.content
+            if piece:
+                text += piece
+                yield ChatResult(
+                    message=Message(role="assistant", content=text),
+                    provider=self._name,
+                    model=self._config.model,
+                    latency_ms=(time.perf_counter() - started) * 1000,
+                )
 
 
 register = make_register(

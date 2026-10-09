@@ -105,6 +105,46 @@ class AiViewModel(Observable):
         self._end_request()
         return reply
 
+    async def stream_chat(self, text: str) -> str | None:
+        """Send a chat message and stream the reply into the transcript.
+
+        A placeholder assistant message is appended up front and replaced
+        with the growing reply on each chunk, so the panel shows text as it
+        arrives. Returns the final reply, or ``None`` on failure.
+        """
+        if self._ai is None or self._busy:
+            return None
+        self._transcript.append(Message(role="user", content=text))
+        request = ChatRequest(messages=tuple(self._transcript))
+        self._transcript.append(Message(role="assistant", content=""))
+        self._begin_request()
+        reply = ""
+        try:
+            async for chunk in self._ai.chat_stream(request):
+                reply = chunk.message.content
+                self._transcript[-1] = Message(role="assistant", content=reply)
+                self._notify()
+        except NotImplementedError:
+            self._drop_placeholder()
+            self._end_request(f"{self.provider_name} does not support streaming yet.")
+            return None
+        except Exception:
+            _logger.exception("AI streaming chat request failed")
+            self._drop_placeholder()
+            self._end_request("The AI request failed — see the console for details.")
+            return None
+        self._end_request()
+        return reply
+
+    def _drop_placeholder(self) -> None:
+        """Remove an empty assistant placeholder left by a failed stream."""
+        if (
+            self._transcript
+            and self._transcript[-1].role == "assistant"
+            and not self._transcript[-1].content
+        ):
+            self._transcript.pop()
+
     async def generate(self, prompt: str) -> GenerationResult | None:
         """Generate media from *prompt*; returns the result or ``None``.
 

@@ -23,6 +23,7 @@
 ### Added
 
 - Chat support for the Anthropic, OpenAI and Gemini providers (install the matching extra; set the API key).
+- Streaming chat: replies appear in the AI assistant as they are generated.
 
 - Open-source governance: `LICENSE` (MIT), `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`
 - GitHub templates: issue templates (bug report, feature request, question), pull request template

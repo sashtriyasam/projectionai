@@ -64,7 +64,7 @@ class GeminiProvider:
         # pyright: ignore[reportUnreachable] — unreachable; keeps this an async generator
         yield
 
-    async def chat(self, request: ChatRequest) -> ChatResult:
+    def _request_kwargs(self, request: ChatRequest) -> dict[str, Any]:
         contents = [
             {
                 # Gemini calls the assistant role "model".
@@ -80,12 +80,12 @@ class GeminiProvider:
         }
         if request.system_prompt:
             config["system_instruction"] = request.system_prompt
+        return {"model": self._config.model, "contents": contents, "config": config}
 
+    async def chat(self, request: ChatRequest) -> ChatResult:
         started = time.perf_counter()
         response = await self._get_client().aio.models.generate_content(
-            model=self._config.model,
-            contents=contents,
-            config=config,
+            **self._request_kwargs(request)
         )
         return ChatResult(
             message=Message(role="assistant", content=response.text or ""),
@@ -94,10 +94,22 @@ class GeminiProvider:
             latency_ms=(time.perf_counter() - started) * 1000,
         )
 
-    async def chat_stream(self, _request: ChatRequest) -> AsyncIterator[ChatResult]:
-        raise NotImplementedError("Streaming chat is not implemented yet.")
-        # pyright: ignore[reportUnreachable] — unreachable; keeps this an async generator
-        yield
+    async def chat_stream(self, request: ChatRequest) -> AsyncIterator[ChatResult]:
+        started = time.perf_counter()
+        text = ""
+        stream = await self._get_client().aio.models.generate_content_stream(
+            **self._request_kwargs(request)
+        )
+        async for chunk in stream:
+            piece = chunk.text or ""
+            if piece:
+                text += piece
+                yield ChatResult(
+                    message=Message(role="assistant", content=text),
+                    provider=self._name,
+                    model=self._config.model,
+                    latency_ms=(time.perf_counter() - started) * 1000,
+                )
 
 
 register = make_register(

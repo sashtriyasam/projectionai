@@ -112,3 +112,66 @@ async def test_gemini_maps_assistant_role_to_model() -> None:
 async def test_missing_key_fails_initialize(provider_cls: Any, config: Any) -> None:
     with pytest.raises(RuntimeError, match="is not set"):
         await provider_cls(config).initialize()
+
+
+async def _collect(stream: Any) -> list[str]:
+    return [chunk.message.content async for chunk in stream]
+
+
+async def test_anthropic_stream_yields_cumulative_text() -> None:
+    class _Stream:
+        text_stream = _aiter(["He", "llo"])
+
+        async def __aenter__(self) -> _Stream:
+            return self
+
+        async def __aexit__(self, *_exc: object) -> None:
+            return None
+
+    class _Messages:
+        def stream(self, **_kwargs: Any) -> _Stream:
+            return _Stream()
+
+    client = SimpleNamespace(messages=_Messages())
+    provider = AnthropicProvider(AnthropicConfig(api_key="k"), client=client)
+    assert await _collect(provider.chat_stream(_request())) == ["He", "Hello"]
+
+
+async def test_openai_stream_skips_empty_deltas() -> None:
+    def _chunk(content: str | None, *, empty: bool = False) -> Any:
+        choices = (
+            [] if empty else [SimpleNamespace(delta=SimpleNamespace(content=content))]
+        )
+        return SimpleNamespace(choices=choices)
+
+    chunks = [_chunk("A"), _chunk(None), _chunk("", empty=True), _chunk("B")]
+
+    class _Completions:
+        async def create(self, **kwargs: Any) -> Any:
+            assert kwargs["stream"] is True
+            return _aiter(chunks)
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=_Completions()))
+    provider = OpenAIProvider(OpenAIConfig(api_key="k"), client=client)
+    assert await _collect(provider.chat_stream(_request())) == ["A", "AB"]
+
+
+async def test_gemini_stream_yields_cumulative_text() -> None:
+    chunks = [
+        SimpleNamespace(text="Hi"),
+        SimpleNamespace(text=None),
+        SimpleNamespace(text=" there"),
+    ]
+
+    class _Models:
+        async def generate_content_stream(self, **_kwargs: Any) -> Any:
+            return _aiter(chunks)
+
+    client = SimpleNamespace(aio=SimpleNamespace(models=_Models()))
+    provider = GeminiProvider(GeminiConfig(api_key="k"), client=client)
+    assert await _collect(provider.chat_stream(_request())) == ["Hi", "Hi there"]
+
+
+async def _aiter(items: list[Any]) -> Any:
+    for item in items:
+        yield item
