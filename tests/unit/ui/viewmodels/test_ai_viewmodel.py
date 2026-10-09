@@ -110,3 +110,45 @@ async def test_stream_failure_keeps_partial_reply() -> None:
     assert await vm.stream_chat("hi") is None
     assert vm.transcript()[-1].content == "Par"
     assert vm.last_error
+
+
+class _HttpError(Exception):
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"HTTP {status_code}")
+        self.status_code = status_code
+
+
+class _FailingService:
+    def __init__(self, error: BaseException) -> None:
+        self.provider = _Provider()
+        self._error = error
+
+    async def chat(self, request: Any) -> ChatResult:
+        raise self._error
+
+
+async def test_rate_limit_error_is_explained() -> None:
+    vm = AiViewModel(_FailingService(_HttpError(429)))  # type: ignore[arg-type]
+    await vm.chat("hi")
+    assert "rate limiting" in vm.last_error
+
+
+async def test_bad_key_error_is_explained() -> None:
+    vm = AiViewModel(_FailingService(_HttpError(401)))  # type: ignore[arg-type]
+    await vm.chat("hi")
+    assert "rejected the API key" in vm.last_error
+
+
+async def test_server_error_is_explained() -> None:
+    vm = AiViewModel(_FailingService(_HttpError(503)))  # type: ignore[arg-type]
+    await vm.chat("hi")
+    assert "having problems" in vm.last_error
+
+
+async def test_connection_error_is_explained() -> None:
+    class APIConnectionError(Exception):
+        pass
+
+    vm = AiViewModel(_FailingService(APIConnectionError()))  # type: ignore[arg-type]
+    await vm.chat("hi")
+    assert "Could not reach" in vm.last_error
