@@ -23,6 +23,20 @@ from projectionai.editor.types import PivotMode, SnapMode, TransformMode
 
 _logger = logging.getLogger(__name__)
 
+# Strong references to in-flight command tasks: the event loop only keeps
+# weak references, so an unreferenced task can be garbage-collected mid-run.
+_PENDING_COMMANDS: set[asyncio.Future[Any]] = set()
+
+
+def _on_command_done(task: asyncio.Future[Any]) -> None:
+    """Release *task* and log its failure (cancellation is not an error)."""
+    _PENDING_COMMANDS.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        _logger.error("Command failed", exc_info=exc)
+
 
 # ---------------------------------------------------------------------------
 # Undoable transform commands
@@ -275,13 +289,8 @@ class TransformTools:
 
             try:
                 task = asyncio.ensure_future(self._commands.execute(cmd))
-                task.add_done_callback(
-                    lambda t: (
-                        _logger.exception("Command failed", exc_info=t.exception())
-                        if t.exception()
-                        else None
-                    )
-                )
+                _PENDING_COMMANDS.add(task)
+                task.add_done_callback(_on_command_done)
             except Exception:
                 _logger.exception("Failed to schedule TranslateCommand")
 

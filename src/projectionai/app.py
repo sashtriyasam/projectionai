@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QApplication, QSplashScreen, QWidget
 
+    from projectionai.services.ai import AIService
     from projectionai.services.warp_engine_cpu import ProjectionWarpEngine
 
 import anyio
@@ -78,7 +79,7 @@ class Application:
         self._hardware_manager: HardwareManager | None = hardware_manager
 
         # Services — lazy-initialized after managers
-        self._ai_service: _Shutdownable | None = None
+        self._ai_service: AIService | None = None
         self._vision_pipeline: _Shutdownable | None = None
         self._renderer: _Shutdownable | None = None
         self._storage: _Shutdownable | None = None
@@ -171,6 +172,11 @@ class Application:
     def hardware(self) -> HardwareManager:
         """Shortcut to the hardware manager."""
         return self._registry.get_typed("hardware", HardwareManager)
+
+    @property
+    def ai_service(self) -> AIService | None:
+        """Return the AI service, or ``None`` when no provider is loaded."""
+        return self._ai_service
 
     @property
     def warp_engine(self) -> ProjectionWarpEngine:
@@ -544,6 +550,7 @@ async def _run_qt(
             window.load_project(project)
         except Exception as exc:
             _logger.error("Failed to open project %s: %s", project_path, exc)
+            _show_open_error(window, project_path, exc)
 
     # The Qt loop is the source of truth for application lifetime. If it
     # raises (or is cancelled), application resources must still be
@@ -566,6 +573,27 @@ async def _run_qt(
     if drive_error is not None:
         raise drive_error
     return 0
+
+
+def _show_open_error(window: QWidget, project_path: str, exc: Exception) -> None:
+    """Tell the user a project passed on the command line could not be opened.
+
+    Uses a window-modal ``open()`` rather than ``exec()``: a nested Qt
+    event loop would stall the cooperative asyncio pump.
+    """
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QMessageBox
+
+    box = QMessageBox(
+        QMessageBox.Icon.Warning,
+        "Could not open project",
+        f"ProjectionAI could not open the project:\n{project_path}",
+        QMessageBox.StandardButton.Ok,
+        window,
+    )
+    box.setInformativeText(str(exc))
+    box.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+    box.open()
 
 
 def _build_splash(qapp: QApplication) -> QSplashScreen:

@@ -15,11 +15,6 @@ import time
 
 import pytest
 
-from projectionai.calibration.types import CalibrationResult
-from projectionai.calibration.validator import (
-    ValidationIssue,
-    ValidationReport as CalValidationReport,
-)
 from projectionai.calibration.validation_gate import (
     AuthorizationLevel,
     GateId,
@@ -28,12 +23,21 @@ from projectionai.calibration.validation_gate import (
     ValidationGate,
     ValidationGateResult,
 )
+from projectionai.calibration.validator import (
+    ValidationIssue,
+)
+from projectionai.calibration.validator import (
+    ValidationReport as CalValidationReport,
+)
 from projectionai.hardware.display_validator import (
     ValidationIssue as DispValidationIssue,
+)
+from projectionai.hardware.display_validator import (
     ValidationReport as DispValidationReport,
+)
+from projectionai.hardware.display_validator import (
     ValidationSeverity,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -119,7 +123,7 @@ class TestGateStatus:
 
 class TestAuthorizationLevel:
     def test_hierarchy(self) -> None:
-        levels = [l.value for l in AuthorizationLevel]
+        levels = [level.value for level in AuthorizationLevel]
         assert levels == ["none", "preview", "arm", "live"]
 
 

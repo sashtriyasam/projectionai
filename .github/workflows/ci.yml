@@ -28,9 +28,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Ruff check
-        run: uv run ruff check src/
+        run: uv run ruff check src/ tests/
       - name: Ruff format check
-        run: uv run ruff format --check src/
+        run: uv run ruff format --check src/ tests/
 
   mypy:
     name: Type check
@@ -62,6 +62,11 @@ jobs:
           sudo apt-get install -y libegl1 libgl1 libglx-mesa0 libxkbcommon-x11-0 xvfb
       - name: Install dependencies
         run: uv sync --extra dev
+      - name: Build native extensions
+        # Compiles the C++ warp/reconstruction engines so their tests run
+        # instead of skipping. Requires a C++ toolchain (preinstalled on
+        # ubuntu-latest).
+        run: BUILD_NATIVE=1 uv run --with pybind11 python setup.py build_ext --inplace
       - name: Run tests
         env:
           QT_QPA_PLATFORM: offscreen

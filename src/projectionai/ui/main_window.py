@@ -33,8 +33,8 @@ from __future__ import annotations
 import logging
 from typing import Any, override
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
+from PySide6.QtCore import QRect, Qt, QTimer, Signal
+from PySide6.QtGui import QCloseEvent, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDockWidget,
     QMainWindow,
@@ -204,6 +204,24 @@ _PRESETS: tuple[WorkspaceLayout, ...] = (
 )
 
 
+def _fit_to_screen(rect: QRect) -> QRect:
+    """Return *rect* shrunk and moved so it lies on an available screen.
+
+    Saved geometry can point at a display that is no longer connected
+    (a projector or second monitor), or be larger than the current
+    screen; restoring it verbatim would open the window off-screen.
+    """
+    screen = QGuiApplication.screenAt(rect.center()) or QGuiApplication.primaryScreen()
+    if screen is None:
+        return rect
+    avail = screen.availableGeometry()
+    width = min(rect.width(), avail.width())
+    height = min(rect.height(), avail.height())
+    x = min(max(rect.x(), avail.left()), avail.right() - width + 1)
+    y = min(max(rect.y(), avail.top()), avail.bottom() - height + 1)
+    return QRect(x, y, width, height)
+
+
 class _PanelDock(QDockWidget):
     """A dock widget that reports user-initiated close actions.
 
@@ -304,7 +322,7 @@ class MainWindow(QMainWindow):
             output_settings=output_settings_vm,
             timeline=timeline_model,
             timeline_properties=timeline_model,
-            ai_assistant=AiViewModel(),
+            ai_assistant=AiViewModel(getattr(self._app, "ai_service", None)),
         )
 
         # -- Status bar -----------------------------------------------------
@@ -515,8 +533,16 @@ class MainWindow(QMainWindow):
             if layout.window_maximized:
                 self.showMaximized()
             else:
-                self.move(layout.window_x, layout.window_y)
-                self.resize(layout.window_width, layout.window_height)
+                self.setGeometry(
+                    _fit_to_screen(
+                        QRect(
+                            layout.window_x,
+                            layout.window_y,
+                            layout.window_width,
+                            layout.window_height,
+                        )
+                    )
+                )
 
     def _on_dock_visibility(self, panel_id: str, visible: bool) -> None:
         """Write user close/open actions back to the workspace manager.

@@ -70,7 +70,7 @@ async def test_native_backend_stage() -> None:
 
     if not ReconstructionBackendFactory.is_native_available():
         pytest.skip("native extension not built")
-    ctx, c = _ctx("translated")
+    ctx, _c = _ctx("translated")
     stage = ReconstructionStage(mode=BackendMode.NATIVE)
     out = await stage.execute(ctx)
     result: Any = out.data.get("reconstruction")

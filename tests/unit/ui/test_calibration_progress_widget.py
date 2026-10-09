@@ -17,10 +17,10 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from projectionai.application.calibration_workflow import (
+    _WORKFLOW_STAGE_ORDER,
     ProductionWorkflow,
     StageStatus,
     WorkflowState,
-    _WORKFLOW_STAGE_ORDER,
 )
 from projectionai.ui.viewmodels.calibration_progress import (
     CalibrationProgressViewModel,

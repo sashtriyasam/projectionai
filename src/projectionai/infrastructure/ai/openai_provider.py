@@ -1,9 +1,12 @@
-"""OpenAI AI provider plugin."""
+"""OpenAI AI provider plugin (chat via the official ``openai`` SDK)."""
 
 from __future__ import annotations
 
+import importlib.util
 import logging
+import time
 from collections.abc import AsyncIterator
+from typing import Any
 
 from projectionai.core.config import OpenAIConfig
 from projectionai.core.plugin import make_register
@@ -12,53 +15,94 @@ from projectionai.services.ai import (
     ChatResult,
     GenerationRequest,
     GenerationResult,
+    Message,
 )
 
 _logger = logging.getLogger(__name__)
 
 
 class OpenAIProvider:
-    """AI provider using OpenAI's API."""
+    """AI provider using OpenAI's Chat Completions API."""
 
-    def __init__(self, config: OpenAIConfig) -> None:
+    def __init__(self, config: OpenAIConfig, client: Any | None = None) -> None:
         self._config: OpenAIConfig = config
         self._name: str = "openai"
+        self._client: Any | None = client
 
     @property
     def name(self) -> str:
         return self._name
 
     async def initialize(self) -> None:
+        if importlib.util.find_spec("openai") is None:
+            raise RuntimeError(
+                "OpenAI provider needs the 'openai' package "
+                "(pip install 'projectionai[openai]')."
+            )
+        if not self._config.api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set.")
         _logger.info("OpenAI provider initialized (model: %s)", self._config.model)
 
-    async def shutdown(self) -> None: ...
+    async def shutdown(self) -> None:
+        if self._client is not None and hasattr(self._client, "close"):
+            await self._client.close()
+        self._client = None
+
+    def _get_client(self) -> Any:
+        if self._client is None:
+            import openai
+
+            self._client = openai.AsyncOpenAI(
+                api_key=self._config.api_key,
+                organization=self._config.org_id or None,
+            )
+        return self._client
 
     async def generate(self, _request: GenerationRequest) -> GenerationResult:
-        raise NotImplementedError
+        raise NotImplementedError("OpenAI image generation is not implemented yet.")
 
     async def generate_stream(
         self,
         _request: GenerationRequest,
     ) -> AsyncIterator[GenerationResult]:
-        raise NotImplementedError
+        raise NotImplementedError("OpenAI image generation is not implemented yet.")
         # pyright: ignore[reportUnreachable] — unreachable; keeps this an async generator
         yield
 
-    async def chat(self, _request: ChatRequest) -> ChatResult:
-        raise NotImplementedError
+    async def chat(self, request: ChatRequest) -> ChatResult:
+        messages: list[dict[str, str]] = []
+        if request.system_prompt:
+            messages.append({"role": "system", "content": request.system_prompt})
+        messages.extend(
+            {"role": m.role, "content": m.content}
+            for m in request.messages
+            if m.role in ("user", "assistant")
+        )
 
-    async def chat_stream(
-        self,
-        _request: ChatRequest,
-    ) -> AsyncIterator[ChatResult]:
-        raise NotImplementedError
+        started = time.perf_counter()
+        # Temperature is omitted: GPT-5 family models accept only the default.
+        response = await self._get_client().chat.completions.create(
+            model=self._config.model,
+            messages=messages,
+            max_completion_tokens=request.max_tokens,
+        )
+        text = response.choices[0].message.content or ""
+        return ChatResult(
+            message=Message(role="assistant", content=text),
+            provider=self._name,
+            model=self._config.model,
+            latency_ms=(time.perf_counter() - started) * 1000,
+        )
+
+    async def chat_stream(self, _request: ChatRequest) -> AsyncIterator[ChatResult]:
+        raise NotImplementedError("Streaming chat is not implemented yet.")
         # pyright: ignore[reportUnreachable] — unreachable; keeps this an async generator
         yield
 
 
 register = make_register(
     name="openai",
-    version="0.1.0",
+    version="0.2.0",
     description="OpenAI AI provider",
     factory=OpenAIProvider,
 )

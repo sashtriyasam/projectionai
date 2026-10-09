@@ -47,3 +47,25 @@ class TestLoadConfigSingleton:
         finally:
             # Clear the singleton cache so no state leaks to later tests.
             config_module._config = None
+
+
+class TestConfigFile:
+    """File-based configs accept field names as well as env-var aliases."""
+
+    def test_yaml_field_names_are_applied(self, tmp_path) -> None:
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "log_level: ERROR\nenv: production\nai_provider: openai\n"
+            "anthropic:\n  model: custom-model\n",
+            encoding="utf-8",
+        )
+        config = config_module._build_config(cfg)
+        assert config.log_level == "ERROR"
+        assert config.env == "production"
+        assert config.ai_provider == "openai"
+        assert config.anthropic.model == "custom-model"
+
+    def test_json_env_aliases_still_work(self, tmp_path) -> None:
+        cfg = tmp_path / "config.json"
+        cfg.write_text('{"PROJECTIONAI_LOG_LEVEL": "WARNING"}', encoding="utf-8")
+        assert config_module._build_config(cfg).log_level == "WARNING"

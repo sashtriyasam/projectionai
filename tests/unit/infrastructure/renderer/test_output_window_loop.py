@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+
 from projectionai.infrastructure.renderer.output_window import GLOutputWindow
 
 # Use pytest-qt's function-scoped qapp fixture for deterministic teardown
@@ -29,8 +30,8 @@ def test_idle_no_continuous_repaint(qapp, monkeypatch):
 
 
 def test_hardware_harness_continuous_when_active(qapp, monkeypatch):
-    from pathlib import Path
     import os
+    from pathlib import Path
 
     harness_path_str = os.environ.get("PHASE69_HW_HARNESS_PATH")
     if not harness_path_str:

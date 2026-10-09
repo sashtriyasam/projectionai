@@ -218,7 +218,7 @@ class TestApplicationWarpEngineBootstrap:
         await app.initialize()
 
         # Verify all infrastructure inits were called
-        for name, mock_fn in mock_inits.items():
+        for mock_fn in mock_inits.values():
             mock_fn.assert_called_once()
         # Verify ordering: calibrator before warp_engine
         assert call_order.index("_init_calibrator") < call_order.index(

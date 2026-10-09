@@ -24,11 +24,13 @@ BORDER_LIGHT = "#343947"
 
 TEXT = "#D8DAE0"
 TEXT_DIM = "#8A8F9C"
-TEXT_FAINT = "#5C616E"
+TEXT_FAINT = "#838893"  # >= 4.5:1 on PANEL_BG (WCAG AA body text)
 
 ACCENT = "#FF9E00"  # amber — selection, active, focus
 ACCENT_DIM = "#B37100"
-LIVE_RED = "#FF3B30"  # live / record / errors
+LIVE_RED = "#FF3B30"  # live / record / errors (text & indicators)
+LIVE_RED_FILL = "#D92D20"  # filled buttons: white label stays >= 4.5:1
+LIVE_RED_FILL_HOVER = "#C8261B"
 WARN_YELLOW = "#FFC107"
 OK_GREEN = "#30D158"
 
@@ -214,7 +216,7 @@ QToolButton:checked {{
 }}
 
 QToolButton#armLiveButton {{
-    background-color: {LIVE_RED};
+    background-color: {LIVE_RED_FILL};
     color: #FFFFFF;
     font-weight: 700;
     padding: 5px 14px;
@@ -222,11 +224,11 @@ QToolButton#armLiveButton {{
 }}
 
 QToolButton#armLiveButton:hover {{
-    background-color: #FF5A4E;
+    background-color: {LIVE_RED_FILL_HOVER};
 }}
 
 QToolButton#armLiveButton:checked {{
-    background-color: {LIVE_RED};
+    background-color: {LIVE_RED_FILL};
     border: 1px solid #FFFFFF;
 }}
 
@@ -386,8 +388,33 @@ QPushButton#primaryButton:hover {{
 }}
 
 QPushButton#dangerButton {{
-    background-color: {LIVE_RED};
+    background-color: {LIVE_RED_FILL};
     color: #FFFFFF;
+}}
+
+QPushButton#dangerButton:hover {{
+    background-color: {LIVE_RED_FILL_HOVER};
+}}
+
+/* -- Keyboard focus ------------------------------------------------------
+   The global ``outline: none`` removes Qt's native focus rect, so every
+   focusable control needs an explicit, visible focus state (WCAG 2.4.7). */
+
+QPushButton:focus, QToolButton:focus {{
+    border: 1px solid {ACCENT};
+}}
+
+QCheckBox:focus, QRadioButton:focus {{
+    color: {ACCENT};
+}}
+
+QListView:focus, QTreeView:focus, QTableView:focus, QListWidget:focus,
+QTreeWidget:focus, QTableWidget:focus {{
+    border: 1px solid {ACCENT_DIM};
+}}
+
+QTabBar::tab:focus {{
+    color: {ACCENT};
 }}
 
 /* -- Checkboxes -------------------------------------------------------- */

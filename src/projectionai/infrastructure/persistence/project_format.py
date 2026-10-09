@@ -20,6 +20,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from projectionai.core.fileio import atomic_write_text
 from projectionai.domain.asset import Asset
 from projectionai.domain.project import (
     HistoryEntry,
@@ -69,10 +70,7 @@ def write_project(project: Project, path: Path) -> None:
     known_proj_ids = set(project.projections.keys())
     for proj in project.projections.values():
         proj_path = projections_dir / f"{proj.id}.json"
-        proj_path.write_text(
-            json.dumps(proj.to_dict(), indent=2, default=str),
-            encoding="utf-8",
-        )
+        atomic_write_text(proj_path, json.dumps(proj.to_dict(), indent=2, default=str))
 
     for f in projections_dir.iterdir():
         if f.suffix == ".json" and f.stem not in known_proj_ids:
@@ -86,9 +84,8 @@ def write_project(project: Project, path: Path) -> None:
     scenes_dir.mkdir(exist_ok=True)
     for scene in project.scenes.values():
         scene_path = scenes_dir / f"{scene.id}.json"
-        scene_path.write_text(
-            json.dumps(scene.to_dict(), indent=2, default=str),
-            encoding="utf-8",
+        atomic_write_text(
+            scene_path, json.dumps(scene.to_dict(), indent=2, default=str)
         )
 
     # Remove stale scene files
@@ -281,4 +278,4 @@ def _write_manifest(project: Project, path: Path) -> None:
     }
 
     manifest = path / PROJECT_MANIFEST
-    _ = manifest.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    atomic_write_text(manifest, json.dumps(data, indent=2))

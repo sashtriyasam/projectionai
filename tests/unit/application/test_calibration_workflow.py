@@ -1,15 +1,16 @@
 """Tests for ProductionWorkflow — state machine, cancellation, hardware-pending."""
 
 import asyncio
+import contextlib
 
 import pytest
 
 from projectionai.application.calibration_workflow import (
+    _VALID_TRANSITIONS,
+    _WORKFLOW_STAGE_ORDER,
     ProductionWorkflow,
     StageStatus,
     WorkflowState,
-    _VALID_TRANSITIONS,
-    _WORKFLOW_STAGE_ORDER,
 )
 
 
@@ -49,7 +50,7 @@ def test_progress_monotonicity():
     w = ProductionWorkflow()
     prev = w.progress
     assert prev == 0.0
-    for idx, sid in enumerate(_WORKFLOW_STAGE_ORDER):
+    for _idx, sid in enumerate(_WORKFLOW_STAGE_ORDER):
         w._set_stage(sid, StageStatus.DONE, 1.0)
         cur = w.progress
         assert cur >= prev, f"progress not monotonic at {sid}: {prev} -> {cur}"
@@ -144,10 +145,8 @@ async def test_cancellation_during_stage():
     task = asyncio.create_task(w.run_full())
     await asyncio.sleep(0.02)
     w.request_cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=2.0)
-    except asyncio.CancelledError:
-        pass
     assert w.state in (WorkflowState.CANCELLED, WorkflowState.FAILED)
     assert w.calibration_result is None
     assert w.warp_mesh is None
@@ -357,7 +356,6 @@ async def test_cancellation_during_decode():
     w.state = WorkflowState.DECODING
     w._set_stage("decode", StageStatus.RUNNING, 0.5)
     w.calibration_result = object()  # type: ignore[assignment]
-    import asyncio as _asyncio
 
     await w._safe_cancel()
     assert w.state == WorkflowState.CANCELLED
@@ -373,7 +371,6 @@ async def test_cancellation_during_reconstruct():
     w.state = WorkflowState.RECONSTRUCTING
     w._set_stage("reconstruct", StageStatus.RUNNING, 0.5)
     w.calibration_result = object()  # type: ignore[assignment]
-    import asyncio as _asyncio
 
     await w._safe_cancel()
     assert w.state == WorkflowState.CANCELLED
@@ -388,7 +385,6 @@ async def test_cancellation_during_solve():
     w.state = WorkflowState.SOLVING
     w._set_stage("solve", StageStatus.RUNNING, 0.5)
     w.calibration_result = object()  # type: ignore[assignment]
-    import asyncio as _asyncio
 
     await w._safe_cancel()
     assert w.state == WorkflowState.CANCELLED

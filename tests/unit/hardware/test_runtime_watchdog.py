@@ -710,7 +710,7 @@ async def test_renderer_timeout_uses_monotonic() -> None:
 
     # Set last_renderer_ok_at using monotonic
     wd._last_renderer_ok_at = time.monotonic() - 100.0
-    trigger, details = wd._evaluate()
+    trigger, _details = wd._evaluate()
     assert trigger is WatchdogTrigger.RENDERER_UNHEALTHY
 
     await wd.shutdown()
@@ -728,7 +728,7 @@ async def test_production_ownership_no_duplicate_tasks(
 ) -> None:
     """Gate 5: go_live → end_session → go_live → end_session must not
     accumulate tasks or create duplicate watchdogs."""
-    hm, om, dm, watcher, wd = hardware_with_watchdog  # type: ignore[misc]
+    hm, om, dm, _watcher, wd = hardware_with_watchdog  # type: ignore[misc]
     display = dm.displays[0]  # type: ignore[misc]
 
     tasks_after_first: int = 0
@@ -768,7 +768,7 @@ async def test_production_ownership_no_duplicate_tasks(
 async def test_hm_safe_stop_ends_session(hardware_with_watchdog: object) -> None:
     """Gate 6: om.safe_stop() must end the session (called directly, not
     through HardwareManager — HardwareManager doesn't wrap safe_stop)."""
-    hm, om, dm, watcher, wd = hardware_with_watchdog  # type: ignore[misc]
+    hm, om, dm, _watcher, wd = hardware_with_watchdog  # type: ignore[misc]
     display = dm.displays[0]  # type: ignore[misc]
 
     await om.begin_session(preview_display_id=display.display_id)
@@ -908,7 +908,7 @@ async def test_no_auto_recovery_after_trigger(watchdog: object) -> None:
     The watchdog stays in TRIGGERED state. Only an explicit start()
     call (which requires going through HardwareManager) can restart it.
     """
-    wd, om, _dm = watchdog  # type: ignore[misc]
+    wd, _om, _dm = watchdog  # type: ignore[misc]
     bus = wd.event_bus
     assert isinstance(bus, FakeEventBus)
 
@@ -1044,7 +1044,7 @@ async def test_resource_reuse_no_task_accumulation(
     hardware_with_watchdog: object,
 ) -> None:
     """Gate 14: Repeated go_live/stop cycles must not accumulate tasks."""
-    hm, om, dm, watcher, wd = hardware_with_watchdog  # type: ignore[misc]
+    hm, om, dm, _watcher, wd = hardware_with_watchdog  # type: ignore[misc]
     display = dm.displays[0]  # type: ignore[misc]
 
     for _ in range(5):
@@ -1099,7 +1099,7 @@ async def test_event_pressure_unhealthy_to_healthy_emits_once(
     watchdog: object,
 ) -> None:
     """Gate 15: unhealthy → healthy transition emits exactly one CheckPassed."""
-    wd, om, _dm = watchdog  # type: ignore[misc]
+    wd, _om, _dm = watchdog  # type: ignore[misc]
     bus = wd.event_bus
     assert isinstance(bus, FakeEventBus)
 

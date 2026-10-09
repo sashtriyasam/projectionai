@@ -2,7 +2,27 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Config files (`--config`) now honour field names such as `log_level`, not only `PROJECTIONAI_*` env-var aliases; previously those keys were silently ignored.
+- Project, scene, projection, recent-project and editor preference files are written atomically (temp file, fsync, replace) so a crash cannot corrupt them.
+- Restored window geometry is clamped to a connected screen.
+- A project passed on the command line that fails to open now shows an error dialog.
+- Command tasks from the transform tools keep a strong reference and handle cancellation.
+- AI assistant is wired to the loaded provider and shows busy state and readable errors.
+- Accessibility: faint text and the LIVE button meet WCAG AA contrast; keyboard focus is visible on buttons and item views.
+
+### Changed
+
+- Default models updated: Anthropic `claude-opus-5-5`, OpenAI `gpt-5.5` (previous defaults were retired or legacy).
+- Removed unused dependencies: open3d, trimesh, scikit-image, PyOpenGL, orjson.
+- Replaced black/isort with ruff; removed unused tox, nox and mkdocs tooling.
+- The version is now read from `projectionai.__version__` (single source).
+- CI lints `tests/` as well as `src/` and builds the native extensions before running tests.
+
 ### Added
+
+- Chat support for the Anthropic, OpenAI and Gemini providers (install the matching extra; set the API key).
 
 - Open-source governance: `LICENSE` (MIT), `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`
 - GitHub templates: issue templates (bug report, feature request, question), pull request template
