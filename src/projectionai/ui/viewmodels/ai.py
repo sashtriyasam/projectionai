@@ -17,6 +17,7 @@ from projectionai.services.ai import (
     GenerationRequest,
     GenerationResult,
     Message,
+    describe_provider_error,
 )
 from projectionai.ui.viewmodels.observable import Observable
 
@@ -96,9 +97,9 @@ class AiViewModel(Observable):
         except NotImplementedError:
             self._end_request(f"{self.provider_name} does not support chat yet.")
             return None
-        except Exception:
+        except Exception as exc:
             _logger.exception("AI chat request failed")
-            self._end_request("The AI request failed — see the console for details.")
+            self._end_request(describe_provider_error(exc, self.provider_name))
             return None
         reply = result.message.content
         self._transcript.append(Message(role=result.message.role, content=reply))
@@ -128,10 +129,10 @@ class AiViewModel(Observable):
             self._drop_placeholder()
             self._end_request(f"{self.provider_name} does not support streaming yet.")
             return None
-        except Exception:
+        except Exception as exc:
             _logger.exception("AI streaming chat request failed")
             self._drop_placeholder()
-            self._end_request("The AI request failed — see the console for details.")
+            self._end_request(describe_provider_error(exc, self.provider_name))
             return None
         self._end_request()
         return reply
@@ -161,9 +162,9 @@ class AiViewModel(Observable):
         except NotImplementedError:
             self._end_request(f"{self.provider_name} does not support generation yet.")
             return None
-        except Exception:
+        except Exception as exc:
             _logger.exception("AI generation request failed")
-            self._end_request("The AI request failed — see the console for details.")
+            self._end_request(describe_provider_error(exc, self.provider_name))
             return None
         if result.images:
             content = ", ".join(Path(p).name for p in result.images)

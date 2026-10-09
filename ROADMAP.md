@@ -62,7 +62,7 @@
 - [x] Streaming chat (`chat_stream`) for Anthropic, OpenAI and Gemini
 - [ ] Streaming generation (`generate_stream`)
 - [ ] Rate limiting and retry with exponential backoff
-- [ ] Content filtering error handling
+- [x] Error messages for auth, rate-limit, outage and network failures (content-filter detection still open)
 - [ ] Chat interface for iterative prompt refinement
 - [ ] Image-to-image workflows (variations, inpainting)
 

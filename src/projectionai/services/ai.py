@@ -69,6 +69,28 @@ class ChatResult:
     latency_ms: float = 0.0
 
 
+def describe_provider_error(exc: BaseException, provider: str) -> str:
+    """Return a user-facing explanation for a failed provider request.
+
+    Works across SDKs without importing them: HTTP status comes from
+    ``status_code`` (Anthropic, OpenAI) or ``code`` (google-genai), and
+    network failures are recognised by their exception class names.
+    """
+    name = type(exc).__name__
+    if name in {"APIConnectionError", "APITimeoutError", "TimeoutError"}:
+        return f"Could not reach {provider}. Check your connection and try again."
+    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if status in (401, 403):
+        return f"{provider} rejected the API key. Check the key in your settings."
+    if status == 429:
+        return f"{provider} is rate limiting requests. Wait a moment and try again."
+    if status == 400:
+        return f"{provider} rejected the request. Try rephrasing it."
+    if isinstance(status, int) and status >= 500:
+        return f"{provider} is having problems right now. Try again later."
+    return f"The request to {provider} failed. See the console for details."
+
+
 # ---------------------------------------------------------------------------
 # Provider protocol
 # ---------------------------------------------------------------------------
