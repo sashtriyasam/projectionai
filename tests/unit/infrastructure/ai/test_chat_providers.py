@@ -14,7 +14,7 @@ from projectionai.core.config import AnthropicConfig, GeminiConfig, OpenAIConfig
 from projectionai.infrastructure.ai.anthropic import AnthropicProvider
 from projectionai.infrastructure.ai.gemini import GeminiProvider
 from projectionai.infrastructure.ai.openai_provider import OpenAIProvider
-from projectionai.services.ai import ChatRequest, Message
+from projectionai.services.ai import ChatRequest, ContentBlockedError, Message
 
 
 class _Recorder:
@@ -41,11 +41,12 @@ def _request(system: str | None = None) -> ChatRequest:
 
 async def test_anthropic_chat_joins_text_blocks_and_omits_temperature() -> None:
     response = SimpleNamespace(
+        stop_reason="end_turn",
         content=[
             SimpleNamespace(type="thinking", thinking=""),
             SimpleNamespace(type="text", text="Hel"),
             SimpleNamespace(type="text", text="lo"),
-        ]
+        ],
     )
     recorder = _Recorder(response)
     client = SimpleNamespace(messages=recorder)
@@ -62,7 +63,9 @@ async def test_anthropic_chat_joins_text_blocks_and_omits_temperature() -> None:
 
 async def test_openai_chat_puts_system_prompt_first() -> None:
     response = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))]
+        choices=[
+            SimpleNamespace(message=SimpleNamespace(content="ok"), finish_reason="stop")
+        ]
     )
     recorder = _Recorder(response)
     client = SimpleNamespace(chat=SimpleNamespace(completions=recorder))
@@ -81,7 +84,9 @@ async def test_openai_chat_puts_system_prompt_first() -> None:
 
 async def test_openai_null_content_becomes_empty_string() -> None:
     response = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=None))]
+        choices=[
+            SimpleNamespace(message=SimpleNamespace(content=None), finish_reason="stop")
+        ]
     )
     client = SimpleNamespace(chat=SimpleNamespace(completions=_Recorder(response)))
     provider = OpenAIProvider(OpenAIConfig(api_key="k"), client=client)
@@ -128,6 +133,9 @@ async def test_anthropic_stream_yields_cumulative_text() -> None:
         async def __aexit__(self, *_exc: object) -> None:
             return None
 
+        async def get_final_message(self) -> Any:
+            return SimpleNamespace(stop_reason="end_turn")
+
     class _Messages:
         def stream(self, **_kwargs: Any) -> _Stream:
             return _Stream()
@@ -140,7 +148,13 @@ async def test_anthropic_stream_yields_cumulative_text() -> None:
 async def test_openai_stream_skips_empty_deltas() -> None:
     def _chunk(content: str | None, *, empty: bool = False) -> Any:
         choices = (
-            [] if empty else [SimpleNamespace(delta=SimpleNamespace(content=content))]
+            []
+            if empty
+            else [
+                SimpleNamespace(
+                    delta=SimpleNamespace(content=content), finish_reason=None
+                )
+            ]
         )
         return SimpleNamespace(choices=choices)
 
@@ -175,3 +189,44 @@ async def test_gemini_stream_yields_cumulative_text() -> None:
 async def _aiter(items: list[Any]) -> Any:
     for item in items:
         yield item
+
+
+async def test_anthropic_refusal_raises_content_blocked() -> None:
+    response = SimpleNamespace(content=[], stop_reason="refusal")
+    client = SimpleNamespace(messages=_Recorder(response))
+    provider = AnthropicProvider(AnthropicConfig(api_key="k"), client=client)
+    with pytest.raises(ContentBlockedError):
+        await provider.chat(_request())
+
+
+async def test_openai_content_filter_raises_content_blocked() -> None:
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=None), finish_reason="content_filter"
+            )
+        ]
+    )
+    client = SimpleNamespace(chat=SimpleNamespace(completions=_Recorder(response)))
+    provider = OpenAIProvider(OpenAIConfig(api_key="k"), client=client)
+    with pytest.raises(ContentBlockedError):
+        await provider.chat(_request())
+
+
+async def test_gemini_blocked_prompt_raises_content_blocked() -> None:
+    response = SimpleNamespace(
+        text=None,
+        prompt_feedback=SimpleNamespace(block_reason="SAFETY"),
+    )
+    client = SimpleNamespace(aio=SimpleNamespace(models=_Recorder(response)))
+    provider = GeminiProvider(GeminiConfig(api_key="k"), client=client)
+    with pytest.raises(ContentBlockedError):
+        await provider.chat(_request())
+
+
+def test_content_blocked_message_names_the_provider() -> None:
+    from projectionai.services.ai import describe_provider_error
+
+    message = describe_provider_error(ContentBlockedError("openai"), "OpenAI")
+    assert "content policy" in message
+    assert "OpenAI" in message

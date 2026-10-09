@@ -69,6 +69,10 @@ class ChatResult:
     latency_ms: float = 0.0
 
 
+class ContentBlockedError(Exception):
+    """Raised when a provider declines a request under its content policy."""
+
+
 def describe_provider_error(exc: BaseException, provider: str) -> str:
     """Return a user-facing explanation for a failed provider request.
 
@@ -76,6 +80,11 @@ def describe_provider_error(exc: BaseException, provider: str) -> str:
     ``status_code`` (Anthropic, OpenAI) or ``code`` (google-genai), and
     network failures are recognised by their exception class names.
     """
+    if isinstance(exc, ContentBlockedError):
+        return (
+            f"{provider} declined this request under its content policy. "
+            "Try a different prompt."
+        )
     name = type(exc).__name__
     if name in {"APIConnectionError", "APITimeoutError", "TimeoutError"}:
         return f"Could not reach {provider}. Check your connection and try again."

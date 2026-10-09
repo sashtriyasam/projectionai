@@ -13,6 +13,7 @@ from projectionai.core.plugin import make_register
 from projectionai.services.ai import (
     ChatRequest,
     ChatResult,
+    ContentBlockedError,
     GenerationRequest,
     GenerationResult,
     Message,
@@ -90,6 +91,8 @@ class OpenAIProvider:
         response = await self._get_client().chat.completions.create(
             **self._request_kwargs(request)
         )
+        if response.choices[0].finish_reason == "content_filter":
+            raise ContentBlockedError(self._name)
         text = response.choices[0].message.content or ""
         return ChatResult(
             message=Message(role="assistant", content=text),
@@ -107,6 +110,8 @@ class OpenAIProvider:
         async for chunk in stream:
             if not chunk.choices:
                 continue
+            if chunk.choices[0].finish_reason == "content_filter":
+                raise ContentBlockedError(self._name)
             piece = chunk.choices[0].delta.content
             if piece:
                 text += piece

@@ -24,6 +24,7 @@
 
 - Chat support for the Anthropic, OpenAI and Gemini providers (install the matching extra; set the API key).
 - Streaming chat: replies appear in the AI assistant as they are generated.
+- AI assistant reports when a provider declines a request under its content policy, instead of showing an empty reply.
 - AI assistant errors name the cause (bad key, rate limit, provider outage, unreachable network) instead of a generic failure.
 
 - Open-source governance: `LICENSE` (MIT), `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`
