@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 from typing import Any, ClassVar
 
+from projectionai.core.fileio import atomic_write_text
 from projectionai.editor.events import EditorEventBus, EditorPreferenceChanged
 
 _logger = logging.getLogger(__name__)
@@ -116,9 +117,7 @@ class EditorPreferences:
         if self._path is None:
             return
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._path, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, indent=2)
+            atomic_write_text(self._path, json.dumps(self._data, indent=2))
         except OSError as exc:
             _logger.warning("Failed to save editor preferences: %s", exc)
 

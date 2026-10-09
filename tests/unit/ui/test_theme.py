@@ -37,3 +37,33 @@ class TestStylesheetEmission:
             match = re.search(r'font-family:\s*"([^"]+)"', line)
             if match is not None:
                 assert "," not in match.group(1), f"quoted as one token: {line!r}"
+
+
+def _luminance(hex_color: str) -> float:
+    channels = [int(hex_color.lstrip("#")[i : i + 2], 16) / 255 for i in (0, 2, 4)]
+    linear = [
+        c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels
+    ]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def _contrast(fg: str, bg: str) -> float:
+    hi, lo = sorted((_luminance(fg), _luminance(bg)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+class TestAccessibility:
+    """WCAG 2.1 AA: 4.5:1 for body text, visible keyboard focus."""
+
+    def test_text_tokens_meet_aa_on_panel_surfaces(self) -> None:
+        for token in (theme.TEXT, theme.TEXT_DIM, theme.TEXT_FAINT):
+            for bg in (theme.WINDOW_BG, theme.WELL_BG, theme.PANEL_BG):
+                assert _contrast(token, bg) >= 4.5, (token, bg)
+
+    def test_white_label_on_filled_red_meets_aa(self) -> None:
+        for bg in (theme.LIVE_RED_FILL, theme.LIVE_RED_FILL_HOVER):
+            assert _contrast("#FFFFFF", bg) >= 4.5
+
+    def test_buttons_have_focus_state(self) -> None:
+        assert "QPushButton:focus" in theme.STYLESHEET
+        assert "QToolButton:focus" in theme.STYLESHEET

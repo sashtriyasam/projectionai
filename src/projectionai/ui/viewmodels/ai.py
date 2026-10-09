@@ -30,6 +30,8 @@ class AiViewModel(Observable):
         super().__init__()
         self._ai = ai_service
         self._transcript: list[Message] = []
+        self._busy: bool = False
+        self._last_error: str = ""
 
     # -- State ----------------------------------------------------------------
 
@@ -44,6 +46,26 @@ class AiViewModel(Observable):
         if self._ai is None:
             return ""
         return self._ai.provider.name
+
+    @property
+    def busy(self) -> bool:
+        """True while a chat or generation request is in flight."""
+        return self._busy
+
+    @property
+    def last_error(self) -> str:
+        """User-facing description of the last failed request (``""`` if none)."""
+        return self._last_error
+
+    def _begin_request(self) -> None:
+        self._busy = True
+        self._last_error = ""
+        self._notify()
+
+    def _end_request(self, error: str = "") -> None:
+        self._busy = False
+        self._last_error = error
+        self._notify()
 
     # -- Chat transcript --------------------------------------------------------
 
@@ -64,19 +86,23 @@ class AiViewModel(Observable):
         The user message is always recorded; the reply is appended when
         the provider responds.
         """
-        if self._ai is None:
+        if self._ai is None or self._busy:
             return None
         self._transcript.append(Message(role="user", content=text))
-        self._notify()
+        self._begin_request()
         request = ChatRequest(messages=tuple(self._transcript))
         try:
             result = await self._ai.chat(request)
+        except NotImplementedError:
+            self._end_request(f"{self.provider_name} does not support chat yet.")
+            return None
         except Exception:
             _logger.exception("AI chat request failed")
+            self._end_request("The AI request failed — see the console for details.")
             return None
         reply = result.message.content
         self._transcript.append(Message(role=result.message.role, content=reply))
-        self._notify()
+        self._end_request()
         return reply
 
     async def generate(self, prompt: str) -> GenerationResult | None:
@@ -85,15 +111,19 @@ class AiViewModel(Observable):
         The generation prompt is recorded in the transcript as a user
         message when a service is attached.
         """
-        if self._ai is None:
+        if self._ai is None or self._busy:
             return None
         self._transcript.append(Message(role="user", content=prompt))
-        self._notify()
+        self._begin_request()
         request = GenerationRequest(prompt=prompt)
         try:
             result = await self._ai.generate(request)
+        except NotImplementedError:
+            self._end_request(f"{self.provider_name} does not support generation yet.")
+            return None
         except Exception:
             _logger.exception("AI generation request failed")
+            self._end_request("The AI request failed — see the console for details.")
             return None
         if result.images:
             content = ", ".join(Path(p).name for p in result.images)
@@ -102,5 +132,5 @@ class AiViewModel(Observable):
         else:
             content = f"Generated media ({result.provider})"
         self._transcript.append(Message(role="assistant", content=content))
-        self._notify()
+        self._end_request()
         return result

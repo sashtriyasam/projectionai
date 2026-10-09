@@ -22,6 +22,7 @@ from projectionai.core.events import (
     ProjectOpened,
     ProjectSaved,
 )
+from projectionai.core.fileio import atomic_write_text
 from projectionai.domain.project import (
     HistoryEntryType,
     Project,
@@ -301,11 +302,7 @@ class ProjectManager(Manager):
                 }
                 for rp in self._recent_projects
             ]
-            self._recent_projects_path.parent.mkdir(parents=True, exist_ok=True)
-            self._recent_projects_path.write_text(
-                json.dumps(data, indent=2),
-                encoding="utf-8",  # pyright: ignore[reportUnusedCallResult]
-            )
+            atomic_write_text(self._recent_projects_path, json.dumps(data, indent=2))
         except Exception as exc:
             _logger.warning("Failed to save recent projects: %s", exc)
 

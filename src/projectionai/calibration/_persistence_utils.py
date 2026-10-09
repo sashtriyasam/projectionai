@@ -13,10 +13,18 @@ import hashlib
 import json
 import logging
 import os
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
+
+from projectionai.core.fileio import atomic_write_json
+
+__all__ = [
+    "FileLock",
+    "atomic_write_json",
+    "compute_checksum",
+    "verify_checksum",
+]
 
 _logger = logging.getLogger(__name__)
 
@@ -37,30 +45,8 @@ def verify_checksum(data: dict[str, Any] | list[Any], expected: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Atomic write helper
+# Atomic write helper — re-exported from ``projectionai.core.fileio``
 # ---------------------------------------------------------------------------
-
-
-def atomic_write_json(path: Path, data: Any) -> None:
-    """Write *data* as JSON to *path* atomically (tmp -> os.replace).
-
-    Creates parent directories if needed.  Cleans up the temporary file
-    on any failure.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(
-        dir=str(path.parent), suffix=".tmp", prefix=path.stem
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2, default=str)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp_path, str(path))
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-        raise
 
 
 # ---------------------------------------------------------------------------

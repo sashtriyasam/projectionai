@@ -75,6 +75,7 @@ class AiAssistantPanel(ViewModelPanel):
         chips = QHBoxLayout()
         chips.setContentsMargins(4, 2, 4, 2)
         chips.setSpacing(4)
+        self._chips: list[QToolButton] = []
         for text in _SUGGESTIONS:
             chip = QToolButton()
             chip.setObjectName("sectionActionButton")
@@ -82,6 +83,7 @@ class AiAssistantPanel(ViewModelPanel):
             chip.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
             chip.clicked.connect(lambda _checked=False, t=text: self._use_suggestion(t))
             chips.addWidget(chip)
+            self._chips.append(chip)
         root.addLayout(chips)
 
         # -- Transcript ----------------------------------------------------------
@@ -114,6 +116,8 @@ class AiAssistantPanel(ViewModelPanel):
         input_row.setSpacing(4)
         self.prompt_edit = QLineEdit()
         self.prompt_edit.setPlaceholderText("Describe what to create…")
+        self.prompt_edit.setAccessibleName("AI prompt")
+        self.scope_combo.setAccessibleName("AI scope")
         self.prompt_edit.returnPressed.connect(self._send)
         input_row.addWidget(self.prompt_edit, stretch=1)
         self.send_btn = make_action_button("Send", self._send)
@@ -212,21 +216,33 @@ class AiAssistantPanel(ViewModelPanel):
         run_async(vm.chat(text))
 
     def _sync_available(self) -> None:
-        """Enable/disable the composer based on provider availability."""
+        """Enable/disable the composer based on provider availability.
+
+        Suggestion chips follow the composer so they never fill a disabled
+        prompt box; the composer is also locked while a request is in
+        flight to prevent duplicate sends.
+        """
         vm = self._viewmodel
         available = bool(vm is not None and vm.available)
-        self.prompt_edit.setEnabled(available)
-        self.send_btn.setEnabled(available)
-        self.scope_combo.setEnabled(available)
+        busy = bool(available and vm is not None and vm.busy)
+        ready = available and not busy
+        self.prompt_edit.setEnabled(ready)
+        self.send_btn.setEnabled(ready)
+        self.send_btn.setText("Sending…" if busy else "Send")
+        self.scope_combo.setEnabled(ready)
+        for chip in self._chips:
+            chip.setEnabled(ready)
         if available:
-            self.hint_label.hide()
+            error = vm.last_error if vm is not None else ""
+            self.hint_label.setText(error)
+            self.hint_label.setVisible(bool(error))
+            return
+        provider = vm.provider_name if vm is not None else ""
+        if provider:
+            self.hint_label.setText(f"Provider: {provider} — assistant unavailable")
         else:
-            provider = vm.provider_name if vm is not None else ""
-            if provider:
-                self.hint_label.setText(f"Provider: {provider} — assistant unavailable")
-            else:
-                self.hint_label.setText(
-                    "No AI provider configured — install a provider plugin "
-                    "to enable the assistant."
-                )
-            self.hint_label.show()
+            self.hint_label.setText(
+                "AI assistant is off — no AI provider is configured. "
+                "Calibration, warping and output work without one."
+            )
+        self.hint_label.show()

@@ -27,7 +27,11 @@ class GeminiConfig(BaseSettings):
     """Configuration for the Gemini AI provider."""
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
-        env_prefix="gemini_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="gemini_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
     )
 
     api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
@@ -38,11 +42,15 @@ class OpenAIConfig(BaseSettings):
     """Configuration for the OpenAI AI provider."""
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
-        env_prefix="openai_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="openai_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
     )
 
     api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
-    model: str = Field(default="gpt-4o", validation_alias="OPENAI_MODEL")
+    model: str = Field(default="gpt-5.5", validation_alias="OPENAI_MODEL")
     org_id: str = Field(default="", validation_alias="OPENAI_ORG_ID")
 
 
@@ -54,12 +62,11 @@ class AnthropicConfig(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     api_key: str = Field(default="", validation_alias="ANTHROPIC_API_KEY")
-    model: str = Field(
-        default="claude-3-5-sonnet-20241022", validation_alias="ANTHROPIC_MODEL"
-    )
+    model: str = Field(default="claude-opus-5-5", validation_alias="ANTHROPIC_MODEL")
 
 
 class ReplicateConfig(BaseSettings):
@@ -70,6 +77,7 @@ class ReplicateConfig(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     api_token: str = Field(default="", validation_alias="REPLICATE_API_TOKEN")
@@ -98,6 +106,7 @@ class AppConfig(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
         case_sensitive=False,
     )
 
@@ -183,6 +192,8 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         path: Optional path to a YAML/JSON configuration file to load.
               When provided, creates a fresh ``AppConfig`` loaded from
               that file (overriding defaults, ``.env``, and env vars).
+              Keys may use either the field name (``log_level``) or the
+              environment-variable alias (``PROJECTIONAI_LOG_LEVEL``).
     """
     global _config
     if path is not None:
