@@ -13,12 +13,20 @@ from projectionai.core.plugin import make_register
 from projectionai.services.ai import (
     ChatRequest,
     ChatResult,
+    ContentBlockedError,
     GenerationRequest,
     GenerationResult,
     Message,
 )
 
 _logger = logging.getLogger(__name__)
+
+
+def _raise_if_blocked(response: Any, provider: str) -> None:
+    """Raise ContentBlockedError when Gemini blocked the prompt."""
+    feedback = getattr(response, "prompt_feedback", None)
+    if feedback is not None and getattr(feedback, "block_reason", None):
+        raise ContentBlockedError(provider)
 
 
 class GeminiProvider:
@@ -87,6 +95,7 @@ class GeminiProvider:
         response = await self._get_client().aio.models.generate_content(
             **self._request_kwargs(request)
         )
+        _raise_if_blocked(response, self._name)
         return ChatResult(
             message=Message(role="assistant", content=response.text or ""),
             provider=self._name,
@@ -101,6 +110,7 @@ class GeminiProvider:
             **self._request_kwargs(request)
         )
         async for chunk in stream:
+            _raise_if_blocked(chunk, self._name)
             piece = chunk.text or ""
             if piece:
                 text += piece

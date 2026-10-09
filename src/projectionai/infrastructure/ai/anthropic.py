@@ -13,6 +13,7 @@ from projectionai.core.plugin import make_register
 from projectionai.services.ai import (
     ChatRequest,
     ChatResult,
+    ContentBlockedError,
     GenerationRequest,
     GenerationResult,
     Message,
@@ -87,6 +88,8 @@ class AnthropicProvider:
         response = await self._get_client().messages.create(
             **self._request_kwargs(request)
         )
+        if response.stop_reason == "refusal":
+            raise ContentBlockedError(self._name)
         text = "".join(block.text for block in response.content if block.type == "text")
         return ChatResult(
             message=Message(role="assistant", content=text),
@@ -109,6 +112,8 @@ class AnthropicProvider:
                     model=self._config.model,
                     latency_ms=(time.perf_counter() - started) * 1000,
                 )
+            if (await stream.get_final_message()).stop_reason == "refusal":
+                raise ContentBlockedError(self._name)
 
 
 register = make_register(
