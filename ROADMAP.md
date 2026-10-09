@@ -56,10 +56,11 @@
 
 - [ ] Gemini provider: `generate` and `chat` implemented
 - [ ] OpenAI provider: DALL-E 3 / GPT-4o image generation
-- [ ] Anthropic provider (text generation)
+- [x] Anthropic provider (text generation)
 - [ ] Replicate provider (Stable Diffusion, Flux)
 - [ ] Provider selection via config
-- [ ] Streaming support (`generate_stream`, `chat_stream`)
+- [x] Streaming chat (`chat_stream`) for Anthropic, OpenAI and Gemini
+- [ ] Streaming generation (`generate_stream`)
 - [ ] Rate limiting and retry with exponential backoff
 - [ ] Content filtering error handling
 - [ ] Chat interface for iterative prompt refinement

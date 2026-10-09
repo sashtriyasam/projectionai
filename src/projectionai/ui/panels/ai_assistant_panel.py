@@ -213,7 +213,7 @@ class AiAssistantPanel(ViewModelPanel):
         if not text:
             return
         self.prompt_edit.clear()
-        run_async(vm.chat(text))
+        run_async(vm.stream_chat(text))
 
     def _sync_available(self) -> None:
         """Enable/disable the composer based on provider availability.
