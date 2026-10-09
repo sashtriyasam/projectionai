@@ -1,11 +1,8 @@
 """Tests for surface setup — validation, transform, surface types."""
 
-import math
-
 import pytest
 
 from projectionai.application.surface_setup import (
-    SurfaceSetupView,
     build_surface_view,
     dict_to_surface_pose,
     surface_to_dict,
@@ -13,7 +10,6 @@ from projectionai.application.surface_setup import (
 )
 from projectionai.calibration.surface_model import SurfacePose
 from projectionai.calibration.types import Mat4x4, ProjectionType
-from projectionai.domain.surface import SurfaceType
 
 
 def _pose(width=2.0, height=1.5, depth=0.0, stype=ProjectionType.FLAT, transform=None):
@@ -100,7 +96,7 @@ def test_selection():
 
 def test_editing():
     pose = _pose(2.0, 1.5, 0.0)
-    view = build_surface_view("s1", "Wall", pose)
+    build_surface_view("s1", "Wall", pose)
     # Edit dimensions
     new_pose = SurfacePose(
         surface_type=ProjectionType.FLAT,
@@ -166,7 +162,7 @@ def test_unsupported_surface_blocked_by_workflow():
     assert report.is_ok
     assert report.supported_for_calibration is False
     # Workflow boundary must check supported_for_calibration explicitly
-    w = ProductionWorkflow()
+    ProductionWorkflow()
     # Simulate workflow check: do not allow capture if not supported
     assert not report.supported_for_calibration
     # Flat should be allowed

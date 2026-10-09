@@ -1,4 +1,4 @@
-﻿"""Tests for device selection UX model â€” enumeration, selection, safety."""
+"""Tests for device selection UX model â€” enumeration, selection, safety."""
 
 import pytest
 

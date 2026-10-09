@@ -57,7 +57,7 @@ def _reconstruction(
     normal = -r @ np.array([0.0, 0.0, 1.0])
     pts = _make_plane(normal, offset, rng, n)
     proj_k = np.array([[fx, 0, PROJ_W / 2], [0, fy, PROJ_H / 2], [0, 0, 1]], float)
-    proj_pose = np.eye(4)
+    np.eye(4)
     # projector at origin, plane tilted; same as synthetic case
     proj_local = pts  # identity pose
     proj_px = _project(proj_local, proj_k)

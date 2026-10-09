@@ -3,7 +3,6 @@
 Covers Section 2 (WarpMesh contract) and Section 4 (planar reference case).
 """
 
-
 import numpy as np
 import pytest
 

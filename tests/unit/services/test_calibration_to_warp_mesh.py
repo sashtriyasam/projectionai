@@ -160,7 +160,6 @@ class TestCalibrationToWarpMesh:
 
         import numpy as np
 
-
         half = math.radians(22.5)
         # Quaternion for 45° around Y: (cos(22.5°), 0, sin(22.5°), 0)
         quat = (math.cos(half), 0.0, math.sin(half), 0.0)

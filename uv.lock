@@ -1067,7 +1067,10 @@ anthropic = [
     { name = "anthropic" },
 ]
 dev = [
+    { name = "anthropic" },
+    { name = "google-genai" },
     { name = "mypy" },
+    { name = "openai" },
     { name = "pre-commit" },
     { name = "pyinstaller" },
     { name = "pytest" },
@@ -1091,12 +1094,15 @@ replicate = [
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.19" },
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.30" },
+    { name = "anthropic", marker = "extra == 'dev'", specifier = ">=0.30" },
     { name = "anyio", specifier = ">=4.2" },
     { name = "glfw", specifier = ">=2.7" },
+    { name = "google-genai", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=1.0" },
     { name = "moderngl", specifier = ">=5.10" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=2.3" },
     { name = "numpy", specifier = ">=1.26" },
+    { name = "openai", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.0" },
     { name = "opencv-python", specifier = ">=4.9" },
     { name = "pillow", specifier = ">=10.2" },

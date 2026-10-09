@@ -1,9 +1,12 @@
-"""Anthropic AI provider plugin."""
+"""Anthropic AI provider plugin (chat via the official ``anthropic`` SDK)."""
 
 from __future__ import annotations
 
+import importlib.util
 import logging
+import time
 from collections.abc import AsyncIterator
+from typing import Any
 
 from projectionai.core.config import AnthropicConfig
 from projectionai.core.plugin import make_register
@@ -12,53 +15,91 @@ from projectionai.services.ai import (
     ChatResult,
     GenerationRequest,
     GenerationResult,
+    Message,
 )
 
 _logger = logging.getLogger(__name__)
 
 
 class AnthropicProvider:
-    """AI provider using Anthropic's API."""
+    """AI provider using Anthropic's Messages API."""
 
-    def __init__(self, config: AnthropicConfig) -> None:
+    def __init__(self, config: AnthropicConfig, client: Any | None = None) -> None:
         self._config: AnthropicConfig = config
         self._name: str = "anthropic"
+        self._client: Any | None = client
 
     @property
     def name(self) -> str:
         return self._name
 
     async def initialize(self) -> None:
+        if importlib.util.find_spec("anthropic") is None:
+            raise RuntimeError(
+                "Anthropic provider needs the 'anthropic' package "
+                "(pip install 'projectionai[anthropic]')."
+            )
+        if not self._config.api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY is not set.")
         _logger.info("Anthropic provider initialized (model: %s)", self._config.model)
 
-    async def shutdown(self) -> None: ...
+    async def shutdown(self) -> None:
+        if self._client is not None and hasattr(self._client, "close"):
+            await self._client.close()
+        self._client = None
+
+    def _get_client(self) -> Any:
+        if self._client is None:
+            import anthropic
+
+            self._client = anthropic.AsyncAnthropic(api_key=self._config.api_key)
+        return self._client
 
     async def generate(self, _request: GenerationRequest) -> GenerationResult:
-        raise NotImplementedError
+        raise NotImplementedError("Anthropic does not generate media.")
 
     async def generate_stream(
         self,
         _request: GenerationRequest,
     ) -> AsyncIterator[GenerationResult]:
-        raise NotImplementedError
+        raise NotImplementedError("Anthropic does not generate media.")
         # pyright: ignore[reportUnreachable] — unreachable; keeps this an async generator
         yield
 
-    async def chat(self, _request: ChatRequest) -> ChatResult:
-        raise NotImplementedError
+    async def chat(self, request: ChatRequest) -> ChatResult:
+        kwargs: dict[str, Any] = {
+            "model": self._config.model,
+            "max_tokens": request.max_tokens,
+            # Sampling parameters are not accepted on current Claude models,
+            # so temperature is intentionally not sent.
+            "messages": [
+                {"role": m.role, "content": m.content}
+                for m in request.messages
+                if m.role in ("user", "assistant")
+            ],
+        }
+        if request.system_prompt:
+            kwargs["system"] = request.system_prompt
 
-    async def chat_stream(
-        self,
-        _request: ChatRequest,
-    ) -> AsyncIterator[ChatResult]:
-        raise NotImplementedError
+        started = time.perf_counter()
+        response = await self._get_client().messages.create(**kwargs)
+        text = "".join(block.text for block in response.content if block.type == "text")
+        return ChatResult(
+            message=Message(role="assistant", content=text),
+            provider=self._name,
+            model=self._config.model,
+            latency_ms=(time.perf_counter() - started) * 1000,
+        )
+
+    async def chat_stream(self, _request: ChatRequest) -> AsyncIterator[ChatResult]:
+        raise NotImplementedError("Streaming chat is not implemented yet.")
         # pyright: ignore[reportUnreachable] — unreachable; keeps this an async generator
         yield
 
 
 register = make_register(
     name="anthropic",
-    version="0.1.0",
+    version="0.2.0",
     description="Anthropic AI provider",
     factory=AnthropicProvider,
 )

@@ -18,20 +18,18 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from projectionai.calibration.validator import (
-    ValidationReport as CalValidationReport,
-)
 from projectionai.calibration.validation_gate import (
     ValidationGate,
     ValidationGateResult,
-    AuthorizationLevel,
+)
+from projectionai.calibration.validator import (
+    ValidationReport as CalValidationReport,
 )
 from projectionai.hardware.display_manager import DisplayManager
-from projectionai.hardware.errors import LiveNotAuthorizedError, OutputSwitchError
+from projectionai.hardware.errors import LiveNotAuthorizedError
 from projectionai.hardware.output_manager import OutputManager, OutputState
 from projectionai.infrastructure.display.mock_provider import (
     MockDisplayProvider,
-    make_display,
 )
 from tests.conftest import FakeEventBus
 
@@ -120,13 +118,13 @@ class TestGateResultProperty:
         assert om.gate_result is None
 
     async def test_set_after_arm(self, gate_output_manager: object) -> None:
-        om, dm, provider = gate_output_manager  # type: ignore[misc]
+        om, _dm, _provider = gate_output_manager  # type: ignore[misc]
         # Use LIVE source + all passing calibration so gate authorizes ARM
         cal = CalValidationReport(passed=True, quality_score=0.9)
         om.set_calibration_context(
             calibration_report=cal, hardware_pending=(), source_mode="LIVE"
         )
-        session = await om.begin_session(preview_display_id="disp-1")
+        await om.begin_session(preview_display_id="disp-1")
         await om.set_live_target("disp-2")
         await om.arm()
         assert om.gate_result is not None
@@ -143,14 +141,14 @@ class TestArmGateIntegration:
     async def test_arm_passes_when_gate_authorizes(
         self, gate_output_manager: object
     ) -> None:
-        om, dm, provider = gate_output_manager  # type: ignore[misc]
+        om, _dm, _provider = gate_output_manager  # type: ignore[misc]
         cal = CalValidationReport(passed=True, quality_score=0.9)
         om.set_calibration_context(
             calibration_report=cal, hardware_pending=(), source_mode="LIVE"
         )
         await om.begin_session(preview_display_id="disp-1")
         await om.set_live_target("disp-2")
-        report = await om.arm()
+        await om.arm()
         assert om.state is OutputState.ARMED
         assert om.gate_result is not None
         assert om.gate_result.can_arm
@@ -160,11 +158,11 @@ class TestArmGateIntegration:
         self, gate_output_manager: object
     ) -> None:
         """Without calibration report, gate V-01 fails → gate blocks arm."""
-        om, dm, provider = gate_output_manager  # type: ignore[misc]
+        om, _dm, _provider = gate_output_manager  # type: ignore[misc]
         # No calibration context set — gate will fail V-01
         await om.begin_session(preview_display_id="disp-1")
         await om.set_live_target("disp-2")
-        report = await om.arm()
+        await om.arm()
         # Display validation passes but gate blocks: state stays PREVIEW
         # (arm() returns report, doesn't raise — the caller checks report)
         # Actually looking at arm() code: it only transitions if report.is_ok AND gate_ok
@@ -178,7 +176,7 @@ class TestArmGateIntegration:
         self, gate_output_manager: object
     ) -> None:
         """Hardware pending → arm ALLOWED, live blocked."""
-        om, dm, provider = gate_output_manager  # type: ignore[misc]
+        om, _dm, _provider = gate_output_manager  # type: ignore[misc]
         cal = CalValidationReport(passed=True, quality_score=0.9)
         om.set_calibration_context(
             calibration_report=cal,
@@ -201,7 +199,7 @@ class TestArmGateIntegration:
         self, gate_output_manager: object
     ) -> None:
         """SYNTHETIC source → gate caps at PREVIEW → arm blocked."""
-        om, dm, provider = gate_output_manager  # type: ignore[misc]
+        om, _dm, _provider = gate_output_manager  # type: ignore[misc]
         cal = CalValidationReport(passed=True, quality_score=0.9)
         om.set_calibration_context(
             calibration_report=cal, hardware_pending=(), source_mode="SYNTHETIC"
@@ -223,7 +221,7 @@ class TestGoLiveGateIntegration:
         self, gate_output_manager: object
     ) -> None:
         """Hardware pending blocks LIVE but allows ARM (context changed after arm)."""
-        om, dm, provider = gate_output_manager  # type: ignore[misc]
+        om, _dm, _provider = gate_output_manager  # type: ignore[misc]
         cal = CalValidationReport(passed=True, quality_score=0.9)
         om.set_calibration_context(
             calibration_report=cal,
@@ -248,7 +246,7 @@ class TestGoLiveGateIntegration:
         self, gate_output_manager: object
     ) -> None:
         """Hardware pending at arm time → arm ALLOWED, live BLOCKED."""
-        om, dm, provider = gate_output_manager  # type: ignore[misc]
+        om, _dm, _provider = gate_output_manager  # type: ignore[misc]
         cal = CalValidationReport(passed=True, quality_score=0.9)
         om.set_calibration_context(
             calibration_report=cal,
@@ -257,7 +255,7 @@ class TestGoLiveGateIntegration:
         )
         await om.begin_session(preview_display_id="disp-1")
         await om.set_live_target("disp-2")
-        report = await om.arm()
+        await om.arm()
         # ARM should succeed (hardware pending doesn't block arm)
         assert om.state is OutputState.ARMED
         assert om.gate_result is not None
@@ -277,10 +275,10 @@ class TestGoLiveGateIntegration:
 class TestLegacyArmGoLive:
     async def test_arm_without_gate(self, legacy_output_manager: object) -> None:
         """Without a gate, arm() follows display validation only."""
-        om, dm, provider = legacy_output_manager  # type: ignore[misc]
+        om, _dm, _provider = legacy_output_manager  # type: ignore[misc]
         await om.begin_session(preview_display_id="disp-1")
         await om.set_live_target("disp-2")
-        report = await om.arm()
+        await om.arm()
         assert om.state is OutputState.ARMED
         assert om.gate_result is None
         assert om.can_arm is True
@@ -288,11 +286,11 @@ class TestLegacyArmGoLive:
 
     async def test_go_live_without_gate(self, legacy_output_manager: object) -> None:
         """Without a gate, go_live() follows display validation only."""
-        om, dm, provider = legacy_output_manager  # type: ignore[misc]
+        om, _dm, _provider = legacy_output_manager  # type: ignore[misc]
         await om.begin_session(preview_display_id="disp-1")
         await om.set_live_target("disp-2")
         await om.arm()
-        report = await om.go_live()
+        await om.go_live()
         assert om.state is OutputState.LIVE
         assert om.can_live is True
         await om.end_session()

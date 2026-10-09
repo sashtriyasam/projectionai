@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from numpy.typing import NDArray
 
 from projectionai.domain.projection import BlendConfig, CropRegion
 from projectionai.domain.warp_mesh import (
@@ -51,8 +52,6 @@ def _make_test_image(w: int, h: int, pattern: str = "gradient") -> NDArray[np.ui
                 img[y, x, 3] = 255
     return img
 
-
-from numpy.typing import NDArray
 
 # =============================================================================
 # ProjectionWarpEngine ABC
@@ -170,13 +169,13 @@ class TestBilinearSampling:
 
     def test_exact_top_left(self) -> None:
         img = _make_test_image(10, 10, "gradient")
-        r, g, b = _bilinear_sample(img, 0.0, 0.0, 10, 10)
+        r, g, _b = _bilinear_sample(img, 0.0, 0.0, 10, 10)
         assert r == 0  # Top-left R=0
         assert g == 0  # Top-left G=0
 
     def test_exact_bottom_right(self) -> None:
         img = _make_test_image(10, 10, "gradient")
-        r, g, b = _bilinear_sample(img, 1.0, 1.0, 10, 10)
+        r, g, _b = _bilinear_sample(img, 1.0, 1.0, 10, 10)
         assert r == 255  # Bottom-right R=255
         assert g == 255  # Bottom-right G=255
 
